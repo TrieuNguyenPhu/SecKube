@@ -1,4 +1,4 @@
-# Lab 2 buổi chiều: Dockerfile
+# Lab 2 buá»•i chiá»u: Dockerfile
 FROM python:3.13-alpine
 RUN pip install flask prometheus-flask-exporter
 RUN adduser -D -u 10001 appuser

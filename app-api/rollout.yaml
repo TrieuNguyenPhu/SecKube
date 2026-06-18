@@ -1,5 +1,5 @@
-# Rollout: Progressive delivery với canary strategy
-# Sync wave 0: Deploy trước để tạo pods
+# Rollout: Progressive delivery vá»›i canary strategy
+# Sync wave 0: Deploy trÆ°á»›c Ä‘á»ƒ táº¡o pods
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -21,14 +21,14 @@ spec:
     spec:
       containers:
       - name: api
-        image: ghcr.io/trieunguyenphu/w10-api:0.0.3
+        image: ghcr.io/trieunguyenphu/w10-api:0.0.4
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
           protocol: TCP
         env:
         - name: VERSION
-          value: "v0.0.3"
+          value: "v0.0.4"
         - name: ERROR_RATE
           value: "0"
         livenessProbe:
