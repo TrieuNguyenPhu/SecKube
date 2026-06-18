@@ -1,0 +1,21 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredResourceLimits
+metadata:
+  name: require-cpu-memory-limits
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  enforcementAction: deny
+  match:
+    excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    - apiGroups: ["batch"]
+      kinds: ["Job", "CronJob"]
+    - apiGroups: ["argoproj.io"]
+      kinds: ["Rollout"]
+  parameters:
+    limits: ["cpu", "memory"]

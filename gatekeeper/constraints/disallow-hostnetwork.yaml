@@ -1,0 +1,19 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sDisallowedHostNetwork
+metadata:
+  name: disallow-hostnetwork
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  enforcementAction: deny
+  match:
+    excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
+    kinds:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    - apiGroups: ["batch"]
+      kinds: ["Job", "CronJob"]
+    - apiGroups: ["argoproj.io"]
+      kinds: ["Rollout"]

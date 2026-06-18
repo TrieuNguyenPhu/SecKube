@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: good-five-replicas
+  namespace: demo
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: good-five-replicas
+  template:
+    metadata:
+      labels:
+        app: good-five-replicas
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+      - name: nginx
+        image: nginx:1.27.3
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi

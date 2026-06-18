@@ -19,6 +19,10 @@ spec:
       labels:
         app: api
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
       containers:
       - name: api
         image: ghcr.io/trieunguyenphu/w10-api:0.0.5

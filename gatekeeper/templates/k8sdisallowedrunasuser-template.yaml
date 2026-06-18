@@ -1,0 +1,71 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8sdisallowedrunasuser
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sDisallowedRunAsUser
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            users:
+              type: array
+              items:
+                type: integer
+  targets:
+  - target: admission.k8s.gatekeeper.sh
+    rego: |
+      package k8sdisallowedrunasuser
+
+      violation[{"msg": msg}] {
+        user := input_run_as_users[_]
+        disallowed := input.parameters.users[_]
+        user == disallowed
+        msg := sprintf("runAsUser <%v> is disallowed", [user])
+      }
+
+      input_run_as_users[user] {
+        user := input.review.object.spec.securityContext.runAsUser
+      }
+
+      input_run_as_users[user] {
+        user := input.review.object.spec.template.spec.securityContext.runAsUser
+      }
+
+      input_run_as_users[user] {
+        user := input.review.object.spec.jobTemplate.spec.template.spec.securityContext.runAsUser
+      }
+
+      input_run_as_users[user] {
+        container := input_containers[_]
+        user := container.securityContext.runAsUser
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.containers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.initContainers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.template.spec.containers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.template.spec.initContainers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.jobTemplate.spec.template.spec.containers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.jobTemplate.spec.template.spec.initContainers[_]
+      }

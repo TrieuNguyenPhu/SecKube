@@ -192,13 +192,25 @@ git push origin main
 ```
 
 
+## W10 Morning RBAC + Admission Lab
+
+Phan RBAC + Gatekeeper cua buoi sang da duoc ghi lai tai `doc/w10_morning_rbac_admission_lab.md`.
+Tai lieu nay gom cac file da them, cach sync qua ArgoCD, lenh test RBAC, lenh test Gatekeeper va checklist evidence can chup.
+
+```bash
+kubectl auth can-i create deploy -n demo --as alice
+kubectl apply --dry-run=server -f lab-tests/admission/bad-latest-tag.yaml
+```
+
 ## Configuration Reference
 
 ### Sync Waves
 ArgoCD applications deploy in order:
+- Wave -2: `gatekeeper` (OPA Gatekeeper controller)
 - Wave -1: `app-common` (namespace)
 - Wave 0: `k8s-prometheus`, `k8s-rollout` (infrastructure)
-- Wave 1: `app-analysis`, `app-alert` (configuration)
+- Wave 0: `gatekeeper-templates` (ConstraintTemplate)
+- Wave 1: `app-analysis`, `app-alert`, `rbac`, `gatekeeper-constraints` (configuration)
 - Wave 2: `app-api` (application)
 
 ## Cleanup

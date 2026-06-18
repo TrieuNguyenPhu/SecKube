@@ -1,0 +1,56 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredresourcelimits
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredResourceLimits
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            limits:
+              type: array
+              items:
+                type: string
+  targets:
+  - target: admission.k8s.gatekeeper.sh
+    rego: |
+      package k8srequiredresourcelimits
+
+      violation[{"msg": msg}] {
+        container := input_containers[_]
+        required := {resource | resource := input.parameters.limits[_]}
+        provided := {resource | container.resources.limits[resource]}
+        missing := required - provided
+        count(missing) > 0
+        msg := sprintf("container <%s> is missing required resource limits: %v", [container.name, missing])
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.containers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.initContainers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.template.spec.containers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.template.spec.initContainers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.jobTemplate.spec.template.spec.containers[_]
+      }
+
+      input_containers[c] {
+        c := input.review.object.spec.jobTemplate.spec.template.spec.initContainers[_]
+      }
