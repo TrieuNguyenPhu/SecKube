@@ -12,7 +12,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/w10-api
+  IMAGE_NAME: trieunguyenphu/seckube-api
 
 jobs:
   build-and-push:
@@ -64,7 +64,7 @@ jobs:
 
       - name: Update rollout.yaml with new version
         run: |
-          sed -i "s|image: ghcr.io/.*/w10-api:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}|g" app-api/rollout.yaml
+          sed -i "s|image: ghcr.io/.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}|g" app-api/rollout.yaml
           sed -i "s|value: \"v.*\"|value: \"v${{ steps.semver.outputs.version }}\"|g" app-api/rollout.yaml
 
       - name: Commit and push version update
@@ -81,5 +81,9 @@ jobs:
 
       - name: Create git tag
         run: |
-          git tag v${{ steps.semver.outputs.version }}
-          git push origin v${{ steps.semver.outputs.version }}
+          if git rev-parse "v${{ steps.semver.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag already exists"
+          else
+            git tag "v${{ steps.semver.outputs.version }}"
+            git push origin "v${{ steps.semver.outputs.version }}"
+          fi

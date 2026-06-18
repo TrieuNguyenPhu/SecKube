@@ -12,6 +12,8 @@ spec:
   selector:
     matchLabels:
       app: api
+  targetLabels:
+  - app
   endpoints:
   - port: http
     path: /metrics
