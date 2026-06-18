@@ -50,37 +50,52 @@ w10/
 ## Quick Start
 
 ### 1. Setup Cluster
-```powershell
+```bash
 minikube start -p w10 --driver=docker
 kubectl config use-context w10
 ```
 
 ### 2. Install ArgoCD
-```powershell
+```bash
 kubectl create ns argocd
-kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply --server-side -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl -n argocd rollout status deploy/argocd-server
 ```
 
 ### 3. Access ArgoCD UI
-```powershell
-# Port forward (chạy trong một cửa sổ PowerShell riêng)
-kubectl -n argocd port-forward svc/argocd-server 8080:443
+```bash
+# Port forward
+kubectl -n argocd port-forward svc/argocd-server 8080:443 &
 
 # Get password
-$encoded = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
-[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d; echo
 ```
+
+### STEP PHẢI LÀM ĐỂ APP API CHẠY ĐƯỢC
+Step 1: Phải build image:
+- Dùng Github Action tại `.github/workflows/build-push.yml` để build image.
+- Hoặc build local và đẩy lên k8s
+
+Step 2: Phải đổi image name dòng `24` trong file `app-api/rollout.yaml` thành image các bạn đã build
+
+> Note 1: Fork repo thì sẽ không active được Github Action
+
+> Note 2: Nên clone repo template này về sau đó đẩy lên 1 repo của các bạn
+
+> Note 3: Phải đổi đúng image mà các bạn đã build nhé
 
 ### 4. Deploy App of Apps
-```powershell
-kubectl apply -f .\argocd\root.yaml
+```bash
+kubectl apply -f argocd/root.yaml
 ```
 
-### 5. Setup Email Alert (Optional)
-```powershell
-# File app-alert\email-secret.yaml đã chứa App Password
-kubectl apply -f .\app-alert\email-secret.yaml
+### 5. Setup Email Alert
+```bash
+# Follow instructions in app-alert/README.md
+cp app-alert/email-secret.yaml.example app-alert/email-secret.yaml
+kubectl apply -f app-alert/email-secret.yaml
 ```
 
 ## Components
@@ -101,7 +116,7 @@ kubectl apply -f .\app-alert\email-secret.yaml
 ## Verify Deployment
 
 ### Check Rollout Status
-```powershell
+```bash
 # Watch rollout progress
 kubectl get rollout api -n demo -w
 
@@ -113,35 +128,30 @@ kubectl get pods -n demo -l app=api
 ```
 
 ### Check AnalysisRun
-```powershell
+```bash
 # List analysis runs
 kubectl get analysisrun -n demo
 
 # Watch latest analysis
-$latest = kubectl get analysisrun -n demo --sort-by=.metadata.creationTimestamp -o name | Select-Object -Last 1
-$latest
+kubectl get analysisrun -n demo --sort-by=.metadata.creationTimestamp | tail -1
 
 # Describe for detailed metrics
-kubectl describe -n demo $latest
-```
-
-### Check SLO Alert Rule
-```powershell
-kubectl get prometheusrule slo-alerts -n monitoring
+kubectl describe analysisrun -n demo <name>
 ```
 
 ### Query Prometheus Metrics
-```powershell
+```bash
 # Success rate metric
-kubectl run test-query --image=curlimages/curl:latest --rm -i --restart=Never -n monitoring -- curl -s "http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/query?query=api:success_rate:5m"
+kubectl run test-query --image=curlimages/curl:latest --rm -i --restart=Never -n monitoring -- \
+  curl -s 'http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/query?query=api:success_rate:5m'
 ```
 
 ## Test Scenarios (GitOps)
 
 ### Test 1: Successful Deployment (Success Rate ≥ 90%)
-```powershell
+```bash
 # Edit rollout to deploy with no errors
-notepad .\app-api\rollout.yaml
+nano app-api/rollout.yaml
 # Set: ERROR_RATE: "0"
 
 git add app-api/rollout.yaml
@@ -153,9 +163,9 @@ kubectl get analysisrun -n demo -w
 ```
 
 ### Test 2: Failed Deployment (Success Rate < 90%)
-```powershell
+```bash
 # Edit rollout to deploy with 15% error rate
-notepad .\app-api\rollout.yaml
+nano app-api/rollout.yaml
 # Set: ERROR_RATE: "0.15"
 
 git add app-api/rollout.yaml
@@ -168,32 +178,21 @@ kubectl get rollout api -n demo
 ```
 
 ### Test 3: Trigger SLO Alert Email
-```powershell
-# Edit rollout to set 8% error rate (triggers alert, but passes canary)
-notepad .\app-api\rollout.yaml
-# Set: ERROR_RATE: "0.08"
+```bash
+# Edit rollout to set 10% error rate (triggers alert, but passes canary)
+nano app-api/rollout.yaml
+# Set: ERROR_RATE: "0.10"
 
 git add app-api/rollout.yaml
-git commit -m "test: deploy with 8% error rate (92% success)"
+git commit -m "test: deploy with 10% error rate (90% success)"
 git push origin main
 
-# Canary passes (>90%) but SLO alert fires (below 95%)
+# Canary passes (≥90%) but SLO alert fires (below 95%)
 # Wait 2-3 minutes, then check email inbox
 ```
 
 
 ## Configuration Reference
-
-## Lab 1: RBAC + Gatekeeper
-
-- `rbac/`: three roles and bindings for `alice`, `bob`, and `carol`.
-- `gatekeeper/policies/`: four library policies plus the custom required-`owner` policy.
-- `gatekeeper/tests/`: rejected and accepted admission fixtures.
-- `argocd/apps/rbac.yaml`: deploys RBAC through GitOps.
-- `argocd/apps/gatekeeper.yaml`: installs Gatekeeper chart `3.22.2`.
-- `argocd/apps/gatekeeper-policies.yaml`: syncs templates and constraints.
-
-See [rbac/README.md](rbac/README.md) and [gatekeeper/README.md](gatekeeper/README.md) for verification commands.
 
 ### Sync Waves
 ArgoCD applications deploy in order:
@@ -204,9 +203,9 @@ ArgoCD applications deploy in order:
 
 ## Cleanup
 
-```powershell
+```bash
 # Delete ArgoCD applications
-kubectl delete -f .\argocd\root.yaml
+kubectl delete -f argocd/root.yaml
 
 # Wait for resources to be cleaned up
 kubectl get all -n demo
@@ -220,19 +219,3 @@ minikube stop -p w10
 minikube delete -p w10
 ```
 
-## Ghi chú bổ sung cho repo hiện tại
-
-- Git repository: `https://github.com/TrieuNguyenPhu/SecKube.git`
-- Container image: `ghcr.io/trieunguyenphu/seckube-api`
-- Canary analysis dùng ngưỡng 90%; SLO alert dùng ngưỡng 95%.
-- `app-alert\email-secret.yaml` đã có App Password, được Git ignore và không được commit.
-- Khi test `ERROR_RATE`, cần tạo request liên tục để Prometheus có đủ dữ liệu:
-
-```powershell
-kubectl run api-load -n demo --image=busybox:1.36 --restart=Never -- /bin/sh -c "while true; do wget -q -O- http://api/ > /dev/null || true; sleep 0.2; done"
-
-# Xóa load generator sau khi test
-kubectl delete pod api-load -n demo
-```
-
-Tài liệu dành cho AI agent: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md), [ARCHITECTURE.md](ARCHITECTURE.md), [API_MAP.md](API_MAP.md), [BUSINESS_RULES.md](BUSINESS_RULES.md), [AI_NOTES.md](AI_NOTES.md).

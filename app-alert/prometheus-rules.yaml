@@ -16,9 +16,9 @@ spec:
     # SLI: Success rate
     - record: api:success_rate:5m
       expr: |
-        sum(rate(flask_http_request_duration_seconds_count{namespace="demo",app="api",status!~"5.."}[5m]))
+        sum(rate(flask_http_request_duration_seconds_count{status!~"5.."}[5m]))
         /
-        sum(rate(flask_http_request_duration_seconds_count{namespace="demo",app="api"}[5m]))
+        sum(rate(flask_http_request_duration_seconds_count[5m]))
 
     # Alert: Success rate < 95% (SLO violation)
     - alert: SLOViolation

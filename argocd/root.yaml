@@ -1,3 +1,4 @@
+# Lab 5: app-of-apps root
 # Root App: App of Apps pattern - quản lý tất cả child applications
 apiVersion: argoproj.io/v1alpha1
 kind: Application
