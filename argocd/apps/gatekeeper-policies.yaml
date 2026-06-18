@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gatekeeper-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
+    path: gatekeeper/policies
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gatekeeper-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true
+    - SkipDryRunOnMissingResource=true
+  ignoreDifferences:
+  - group: templates.gatekeeper.sh
+    kind: ConstraintTemplate
+    jsonPointers:
+    - /status
