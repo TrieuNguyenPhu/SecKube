@@ -21,11 +21,7 @@ spec:
     spec:
       containers:
       - name: api
-<<<<<<< HEAD
         image: ghcr.io/trieunguyenphu/seckube-api:0.0.2
-=======
-        image: ghcr.io/trieunguyenphu/seckube-api:0.0.2
->>>>>>> dc7873e9903598355afbc8f6b1dedb59299f0053
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
