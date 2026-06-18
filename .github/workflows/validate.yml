@@ -1,4 +1,4 @@
-# Validate Kubernetes and Argo CD manifests changed by a pull request.
+# CI validate manifest (W9 base). Path khop voi cau truc repo W10.
 name: validate
 on:
   pull_request:
@@ -21,7 +21,8 @@ jobs:
         tar -xzf kc.tgz
         sudo mv kubeconform /usr/local/bin/
 
-    # CRD schemas are supplied by their controllers, so unknown schemas are skipped here.
+    # -ignore-missing-schemas: bo qua CRD chua biet schema (Rollout, Application,
+    # ServiceMonitor, PrometheusRule, AnalysisTemplate...)
     - name: Validate manifests
       run: |
         kubeconform -strict -summary -ignore-missing-schemas \
