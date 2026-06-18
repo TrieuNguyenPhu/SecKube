@@ -11,6 +11,27 @@ spec:
     repoURL: https://open-policy-agent.github.io/gatekeeper/charts
     chart: gatekeeper
     targetRevision: 3.22.2
+    helm:
+      values: |
+        replicas: 1
+        controllerManager:
+          readinessTimeout: 5
+          livenessTimeout: 5
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        audit:
+          readinessTimeout: 5
+          livenessTimeout: 5
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
   destination:
     server: https://kubernetes.default.svc
     namespace: gatekeeper-system

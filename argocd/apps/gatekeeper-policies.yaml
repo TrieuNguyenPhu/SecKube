@@ -11,6 +11,8 @@ spec:
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: gatekeeper/policies
     targetRevision: main
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: gatekeeper-system
