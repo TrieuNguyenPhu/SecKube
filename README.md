@@ -125,6 +125,11 @@ $latest
 kubectl describe -n demo $latest
 ```
 
+### Check SLO Alert Rule
+```powershell
+kubectl get prometheusrule slo-alerts -n monitoring
+```
+
 ### Query Prometheus Metrics
 ```powershell
 # Success rate metric
@@ -164,15 +169,15 @@ kubectl get rollout api -n demo
 
 ### Test 3: Trigger SLO Alert Email
 ```powershell
-# Edit rollout to set 10% error rate (triggers alert, but passes canary)
+# Edit rollout to set 8% error rate (triggers alert, but passes canary)
 notepad .\app-api\rollout.yaml
-# Set: ERROR_RATE: "0.10"
+# Set: ERROR_RATE: "0.08"
 
 git add app-api/rollout.yaml
-git commit -m "test: deploy with 10% error rate (90% success)"
+git commit -m "test: deploy with 8% error rate (92% success)"
 git push origin main
 
-# Canary passes (≥90%) but SLO alert fires (below 95%)
+# Canary passes (>90%) but SLO alert fires (below 95%)
 # Wait 2-3 minutes, then check email inbox
 ```
 
