@@ -43,7 +43,7 @@ spec:
                 auth_password_file: /etc/alertmanager/secrets/alertmanager-email/password
                 require_tls: true
                 headers:
-                  Subject: '🚨 [W10 Demo Alert] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
+                  Subject: '🚨 [SecKube Alert] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
                 html: |
                   <!DOCTYPE html>
                   <html>
@@ -67,7 +67,7 @@ spec:
                     <div class="container">
                       <div class="header">
                         <h1>🚨 Alert Notification</h1>
-                        <p style="margin: 5px 0 0 0; opacity: 0.9;">W10 Demo - Kubernetes Monitoring</p>
+                        <p style="margin: 5px 0 0 0; opacity: 0.9;">SecKube - Kubernetes Monitoring</p>
                       </div>
                       <div class="alert-box">
                         {{ range .Alerts }}
@@ -97,7 +97,7 @@ spec:
                         </div>
                         {{ end }}
                         <div class="footer">
-                          <p>This is an automated alert from W10 Demo Monitoring System</p>
+                          <p>This is an automated alert from SecKube Monitoring</p>
                           <p>Powered by Prometheus + AlertManager + Kubernetes</p>
                         </div>
                       </div>
