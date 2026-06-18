@@ -1,4 +1,4 @@
-# Lab 2 buổi chiều: Dockerfile
+# Container image for the SecKube demo API.
 FROM python:3.13-alpine
 RUN pip install flask prometheus-flask-exporter
 COPY app.py /app/app.py
