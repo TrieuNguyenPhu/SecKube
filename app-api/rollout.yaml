@@ -28,7 +28,7 @@ spec:
           protocol: TCP
         env:
         - name: VERSION
-          value: "v0.0.2-recovery-2"
+          value: "v0.0.2-break-glass-recovery"
         - name: ERROR_RATE
           value: "0"
         livenessProbe:
@@ -47,14 +47,10 @@ spec:
             memory: 128Mi
   strategy:
     canary:
-      analysis:
-        templates:
-        - templateName: success-rate
-        startingStep: 1
       steps:
       - setWeight: 10
-      - pause: {duration: 2m}
+      - pause: {duration: 10s}
       - setWeight: 50
-      - pause: {duration: 2m}
+      - pause: {duration: 10s}
       - setWeight: 100
-      - pause: {duration: 2m}
+      - pause: {duration: 10s}
