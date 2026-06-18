@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-test-missing-owner
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: policy-test-missing-owner
+  template:
+    metadata:
+      labels:
+        app: policy-test-missing-owner
+        owner: lab
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: nginx
+        image: nginx:1.27.5
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi

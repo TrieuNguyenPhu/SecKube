@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: policy-test-host-network
+  namespace: demo
+  labels:
+    owner: lab
+spec:
+  hostNetwork: true
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+  containers:
+  - name: nginx
+    image: nginx:1.27.5
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi

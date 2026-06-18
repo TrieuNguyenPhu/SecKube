@@ -184,6 +184,17 @@ git push origin main
 
 ## Configuration Reference
 
+## Lab 1: RBAC + Gatekeeper
+
+- `rbac/`: three roles and bindings for `alice`, `bob`, and `carol`.
+- `gatekeeper/policies/`: four library policies plus the custom required-`owner` policy.
+- `gatekeeper/tests/`: rejected and accepted admission fixtures.
+- `argocd/apps/rbac.yaml`: deploys RBAC through GitOps.
+- `argocd/apps/gatekeeper.yaml`: installs Gatekeeper chart `3.22.2`.
+- `argocd/apps/gatekeeper-policies.yaml`: syncs templates and constraints.
+
+See [rbac/README.md](rbac/README.md) and [gatekeeper/README.md](gatekeeper/README.md) for verification commands.
+
 ### Sync Waves
 ArgoCD applications deploy in order:
 - Wave -1: `app-common` (namespace)
