@@ -9,7 +9,7 @@ spec:
   - name: success-rate
     interval: 30s
     successCondition: result >= 0.90
-    failureLimit: 10
+    failureLimit: 2
     provider:
       prometheus:
         address: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
