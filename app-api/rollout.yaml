@@ -1,5 +1,5 @@
-# Rollout: Progressive delivery với canary strategy
-# Sync wave 0: Deploy trước để tạo pods
+# Rollout: Progressive delivery vá»›i canary strategy
+# Sync wave 0: Deploy trÆ°á»›c Ä‘á»ƒ táº¡o pods
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -7,7 +7,6 @@ metadata:
   namespace: demo
   labels:
     app: api
-    owner: platform-team
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
@@ -19,13 +18,10 @@ spec:
     metadata:
       labels:
         app: api
-        owner: platform-team
     spec:
-      securityContext:
-        runAsNonRoot: true
       containers:
       - name: api
-        image: ghcr.io/trieunguyenphu/seckube-api:0.0.2
+        image: ghcr.io/trieunguyenphu/w10-api:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -61,4 +57,3 @@ spec:
       - setWeight: 50
       - pause: {duration: 2m}
       - setWeight: 100
-      - pause: {duration: 2m}
