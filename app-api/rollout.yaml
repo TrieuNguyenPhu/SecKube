@@ -28,9 +28,9 @@ spec:
           protocol: TCP
         env:
         - name: VERSION
-          value: "v0.0.2-failure-test"
+          value: "v0.0.2-recovery"
         - name: ERROR_RATE
-          value: "0.15"
+          value: "0"
         livenessProbe:
           httpGet:
             path: /healthz
@@ -57,3 +57,4 @@ spec:
       - setWeight: 50
       - pause: {duration: 2m}
       - setWeight: 100
+      - pause: {duration: 2m}
