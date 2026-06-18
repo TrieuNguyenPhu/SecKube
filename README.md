@@ -50,39 +50,37 @@ w10/
 ## Quick Start
 
 ### 1. Setup Cluster
-```bash
+```powershell
 minikube start -p w10 --driver=docker
 kubectl config use-context w10
 ```
 
 ### 2. Install ArgoCD
-```bash
+```powershell
 kubectl create ns argocd
-kubectl apply --server-side -n argocd \
-  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl -n argocd rollout status deploy/argocd-server
 ```
 
 ### 3. Access ArgoCD UI
-```bash
-# Port forward
-kubectl -n argocd port-forward svc/argocd-server 8080:443 &
+```powershell
+# Port forward (chạy trong một cửa sổ PowerShell riêng)
+kubectl -n argocd port-forward svc/argocd-server 8080:443
 
 # Get password
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d; echo
+$encoded = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
+[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
 ```
 
 ### 4. Deploy App of Apps
-```bash
-kubectl apply -f argocd/root.yaml
+```powershell
+kubectl apply -f .\argocd\root.yaml
 ```
 
 ### 5. Setup Email Alert (Optional)
-```bash
-# Follow instructions in app-alert/README.md
-cp app-alert/email-secret.yaml.example app-alert/email-secret.yaml
-kubectl apply -f app-alert/email-secret.yaml
+```powershell
+# File app-alert\email-secret.yaml đã chứa App Password
+kubectl apply -f .\app-alert\email-secret.yaml
 ```
 
 ## Components
@@ -103,7 +101,7 @@ kubectl apply -f app-alert/email-secret.yaml
 ## Verify Deployment
 
 ### Check Rollout Status
-```bash
+```powershell
 # Watch rollout progress
 kubectl get rollout api -n demo -w
 
@@ -115,30 +113,30 @@ kubectl get pods -n demo -l app=api
 ```
 
 ### Check AnalysisRun
-```bash
+```powershell
 # List analysis runs
 kubectl get analysisrun -n demo
 
 # Watch latest analysis
-kubectl get analysisrun -n demo --sort-by=.metadata.creationTimestamp | tail -1
+$latest = kubectl get analysisrun -n demo --sort-by=.metadata.creationTimestamp -o name | Select-Object -Last 1
+$latest
 
 # Describe for detailed metrics
-kubectl describe analysisrun -n demo <name>
+kubectl describe -n demo $latest
 ```
 
 ### Query Prometheus Metrics
-```bash
+```powershell
 # Success rate metric
-kubectl run test-query --image=curlimages/curl:latest --rm -i --restart=Never -n monitoring -- \
-  curl -s 'http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/query?query=api:success_rate:5m'
+kubectl run test-query --image=curlimages/curl:latest --rm -i --restart=Never -n monitoring -- curl -s "http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/query?query=api:success_rate:5m"
 ```
 
 ## Test Scenarios (GitOps)
 
 ### Test 1: Successful Deployment (Success Rate ≥ 90%)
-```bash
+```powershell
 # Edit rollout to deploy with no errors
-nano app-api/rollout.yaml
+notepad .\app-api\rollout.yaml
 # Set: ERROR_RATE: "0"
 
 git add app-api/rollout.yaml
@@ -150,9 +148,9 @@ kubectl get analysisrun -n demo -w
 ```
 
 ### Test 2: Failed Deployment (Success Rate < 90%)
-```bash
+```powershell
 # Edit rollout to deploy with 15% error rate
-nano app-api/rollout.yaml
+notepad .\app-api\rollout.yaml
 # Set: ERROR_RATE: "0.15"
 
 git add app-api/rollout.yaml
@@ -165,9 +163,9 @@ kubectl get rollout api -n demo
 ```
 
 ### Test 3: Trigger SLO Alert Email
-```bash
+```powershell
 # Edit rollout to set 10% error rate (triggers alert, but passes canary)
-nano app-api/rollout.yaml
+notepad .\app-api\rollout.yaml
 # Set: ERROR_RATE: "0.10"
 
 git add app-api/rollout.yaml
@@ -190,9 +188,9 @@ ArgoCD applications deploy in order:
 
 ## Cleanup
 
-```bash
+```powershell
 # Delete ArgoCD applications
-kubectl delete -f argocd/root.yaml
+kubectl delete -f .\argocd\root.yaml
 
 # Wait for resources to be cleaned up
 kubectl get all -n demo
@@ -205,3 +203,20 @@ kubectl delete ns argocd
 minikube stop -p w10
 minikube delete -p w10
 ```
+
+## Ghi chú bổ sung cho repo hiện tại
+
+- Git repository: `https://github.com/TrieuNguyenPhu/SecKube.git`
+- Container image: `ghcr.io/trieunguyenphu/seckube-api`
+- Canary analysis dùng ngưỡng 90%; SLO alert dùng ngưỡng 95%.
+- `app-alert\email-secret.yaml` đã có App Password, được Git ignore và không được commit.
+- Khi test `ERROR_RATE`, cần tạo request liên tục để Prometheus có đủ dữ liệu:
+
+```powershell
+kubectl run api-load -n demo --image=busybox:1.36 --restart=Never -- /bin/sh -c "while true; do wget -q -O- http://api/ > /dev/null || true; sleep 0.2; done"
+
+# Xóa load generator sau khi test
+kubectl delete pod api-load -n demo
+```
+
+Tài liệu dành cho AI agent: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md), [ARCHITECTURE.md](ARCHITECTURE.md), [API_MAP.md](API_MAP.md), [BUSINESS_RULES.md](BUSINESS_RULES.md), [AI_NOTES.md](AI_NOTES.md).
