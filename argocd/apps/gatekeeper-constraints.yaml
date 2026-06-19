@@ -1,23 +1,60 @@
+# =============================================================================
+# FILE: gatekeeper-constraints.yaml
+# MÔ TẢ: ArgoCD Application triển khai các Constraint cho OPA Gatekeeper
+# -----------------------------------------------------------------------------
+# Constraint là instance cụ thể của ConstraintTemplate, áp dụng policy bảo mật
+# lên các resource trên cluster. Ví dụ:
+#   - Bắt buộc tất cả Pod phải có label nhất định
+#   - Cấm sử dụng NodePort Service
+#   - Yêu cầu container phải có resource limits
+#
+# SYNC-WAVE: 1 (Áp dụng policy)
+#   - Wave -2: Cài đặt Gatekeeper operator
+#   - Wave  0: Triển khai ConstraintTemplates (tạo CRD cho mỗi loại constraint)
+#   → Wave  1: Áp dụng Constraints ← FILE NÀY
+#   - Wave  2: Ứng dụng API (bị enforce bởi constraints)
+#
+# QUAN TRỌNG: Phải ở wave 1 vì:
+#   1. Cần Gatekeeper operator (wave -2) để có admission webhook
+#   2. Cần ConstraintTemplates (wave 0) để có CRD (ví dụ: K8sRequiredLabels)
+#   3. Nếu constraint deploy trước template → lỗi vì CRD chưa tồn tại
+#
+# Chuỗi phụ thuộc: gatekeeper → gatekeeper-templates → gatekeeper-constraints
+#
+# PHỤ THUỘC:
+#   - gatekeeper (wave -2) - cung cấp admission webhook
+#   - gatekeeper-templates (wave 0) - tạo CRD cho từng loại Constraint
+# ĐƯỢC PHỤ THUỘC BỞI: app-api (wave 2) - bị kiểm tra bởi constraints
+# =============================================================================
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: gatekeeper-constraints
   namespace: argocd
   annotations:
+    # sync-wave: 1 → triển khai sau templates (wave 0), trước app API (wave 2)
     argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
+    # Lấy các file Constraint từ thư mục gatekeeper/constraints/ trong Git
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: gatekeeper/constraints
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
+    # Constraint là cluster-scoped, namespace chỉ mang tính tham chiếu
     namespace: gatekeeper-system
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
+    # ServerSideApply=true: Xử lý tốt các resource phức tạp
     - ServerSideApply=true
+    # SkipDryRunOnMissingResource=true: Bỏ qua dry-run nếu CRD chưa tồn tại
+    # CRD cho mỗi loại Constraint (ví dụ: K8sRequiredLabels) được tạo bởi
+    # ConstraintTemplate (wave 0). Khi lần đầu sync, CRD có thể chưa sẵn sàng.
+    # Option này cho phép ArgoCD tiếp tục sync mà không cần dry-run thành công
     - SkipDryRunOnMissingResource=true

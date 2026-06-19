@@ -1,23 +1,73 @@
-# ArgoCD App: Deploy API Rollout + Service + ServiceMonitor
+# =============================================================================
+# FILE: app-api.yaml
+# MÔ TẢ: ArgoCD Application triển khai ứng dụng API (Rollout + Service + ServiceMonitor)
+# -----------------------------------------------------------------------------
+# Đây là ứng dụng chính của hệ thống, triển khai CUỐI CÙNG (wave 2) sau khi
+# toàn bộ hạ tầng, monitoring, policy, RBAC đã sẵn sàng.
+#
+# Các tài nguyên được triển khai:
+#   - Rollout (thay thế Deployment): Quản lý canary/blue-green deployment
+#     với tích hợp AnalysisTemplate để tự động rollback
+#   - Service: Expose API cho traffic nội bộ cluster
+#   - ServiceMonitor: Cấu hình Prometheus scrape metrics từ API endpoints
+#     (ví dụ: /metrics endpoint expose request count, latency, error rate)
+#
+# SYNC-WAVE: 2 (Ứng dụng - triển khai cuối cùng)
+#   - Wave -2: Cài đặt hạ tầng (Gatekeeper, ESO, Policy Controller)
+#   - Wave -1: Tạo namespace, secrets, image policies
+#   - Wave  0: Cài đặt monitoring + Argo Rollouts
+#   - Wave  1: Triển khai alerts, analysis templates, RBAC, constraints
+#   → Wave  2: Triển khai ứng dụng API ← FILE NÀY
+#
+# Triển khai cuối cùng (wave 2) vì ứng dụng cần TẤT CẢ thành phần khác:
+#   1. Namespace "demo" phải tồn tại (app-common, wave -1)
+#   2. Secrets đã đồng bộ từ external provider (eso-config, wave -1)
+#   3. Image phải pass signature verification (policies, wave -1)
+#   4. Gatekeeper constraints phải sẵn sàng để enforce policy (wave 1)
+#   5. Argo Rollouts controller phải chạy để quản lý Rollout CRD (wave 0)
+#   6. AnalysisTemplate phải có để Rollout tham chiếu (wave 1)
+#   7. Prometheus phải chạy để scrape ServiceMonitor (wave 0)
+#   8. RBAC phải được cấu hình cho ServiceAccount của Pod (wave 1)
+#
+# PHỤ THUỘC (tất cả các app khác):
+#   - app-common (wave -1): Namespace "demo"
+#   - eso-config (wave -1): K8s Secrets
+#   - policies (wave -1): Image signature policy
+#   - k8s-prometheus (wave 0): Prometheus cho ServiceMonitor
+#   - k8s-rollout (wave 0): Argo Rollouts controller cho Rollout CRD
+#   - app-alert (wave 1): PrometheusRule cho SLO monitoring
+#   - app-analysis (wave 1): AnalysisTemplate cho canary analysis
+#   - rbac (wave 1): RBAC permissions
+#   - gatekeeper-constraints (wave 1): Policy enforcement
+# ĐƯỢC PHỤ THUỘC BỞI: Không có (đây là leaf node trong dependency graph)
+# =============================================================================
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: api
   namespace: argocd
   annotations:
+    # sync-wave: 2 → triển khai CUỐI CÙNG sau tất cả hạ tầng và cấu hình
+    # Đảm bảo mọi thành phần bảo mật, monitoring, RBAC đã sẵn sàng
     argocd.argoproj.io/sync-wave: "2"
 spec:
   project: default
   source:
+    # Lấy manifest Rollout + Service + ServiceMonitor từ thư mục app-api/ trong Git
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: app-api
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
+    # Triển khai vào namespace "demo" - namespace chính cho ứng dụng
     namespace: demo
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
+    # ServerSideApply=true: Xử lý đúng field ownership, đặc biệt quan trọng
+    # khi Argo Rollouts controller cũng quản lý các field trong Rollout resource
+    # KHÔNG có CreateNamespace vì "demo" đã được tạo bởi app-common (wave -1)
     - ServerSideApply=true

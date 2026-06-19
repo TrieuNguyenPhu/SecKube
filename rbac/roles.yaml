@@ -1,36 +1,96 @@
+# =============================================================================
+# File: rbac/roles.yaml
+# Mô tả: Định nghĩa 3 RBAC Role/ClusterRole theo nguyên tắc least privilege.
+#
+# Mục đích:
+#   - Phân quyền truy cập Kubernetes theo vai trò (Role-Based Access Control).
+#   - Mỗi role chỉ cấp đúng quyền cần thiết, tuân thủ nguyên tắc
+#     "quyền tối thiểu" (principle of least privilege).
+#
+# Danh sách role:
+#   1. developer-workload-manager (Role, namespace: demo)
+#      → Developer: quản lý workload (pods, services, deployments, rollouts)
+#   2. sre-pod-operator (ClusterRole, toàn cluster)
+#      → SRE: quản lý pod + exec/portforward để debug
+#   3. cluster-viewer (ClusterRole, toàn cluster)
+#      → Auditor/Viewer: chỉ xem, không sửa/xóa bất kỳ resource nào
+#
+# Lưu ý:
+#   - Role chỉ có hiệu lực trong 1 namespace cụ thể
+#   - ClusterRole có hiệu lực trên TOÀN BỘ cluster
+#   - Role/ClusterRole chỉ định nghĩa quyền, cần RoleBinding/ClusterRoleBinding
+#     để gán cho user cụ thể (xem file rolebindings.yaml)
+# =============================================================================
+
+# =============================================================================
+# ROLE 1: developer-workload-manager
+# Phạm vi: Namespace "demo" only
+# Đối tượng: Developer - người phát triển ứng dụng
+# Quyền: Toàn quyền CRUD trên workload resources (pods, services, deployments)
+# =============================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: developer-workload-manager
+  # Role bị giới hạn trong namespace demo - developer không thể tác động
+  # đến các namespace khác (production, kube-system, v.v.)
   namespace: demo
 rules:
+# Quyền trên Core API group ("") - Pods và Services
+# Bao gồm: tạo mới, xem, cập nhật, xóa pods/services
 - apiGroups: [""]
   resources: ["pods", "pods/log", "services"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Quyền trên Apps API group - Deployments và ReplicaSets
+# Developer cần quản lý deployment để triển khai và rollback ứng dụng
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Quyền trên Argo Rollouts - chiến lược triển khai nâng cao
+# Cho phép sử dụng canary/blue-green deployment qua Argo Rollouts
 - apiGroups: ["argoproj.io"]
   resources: ["rollouts"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
+# =============================================================================
+# ROLE 2: sre-pod-operator
+# Phạm vi: Toàn cluster (ClusterRole)
+# Đối tượng: SRE (Site Reliability Engineer) - người vận hành hệ thống
+# Quyền: Quản lý pod + exec vào container + port-forward để debug
+# =============================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: sre-pod-operator
 rules:
+# Toàn quyền trên pods ở MỌI namespace
+# SRE cần xem log, kiểm tra status, và quản lý pod trên toàn cluster
 - apiGroups: [""]
   resources: ["pods", "pods/log", "pods/status"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Quyền đặc biệt: exec vào container và port-forward
+# - pods/exec: cho phép chạy lệnh bên trong container (kubectl exec)
+# - pods/portforward: cho phép chuyển tiếp port để debug (kubectl port-forward)
+# Chỉ cấp verb "create" vì exec/portforward hoạt động qua tạo kết nối mới
 - apiGroups: [""]
   resources: ["pods/exec", "pods/portforward"]
   verbs: ["create"]
 ---
+# =============================================================================
+# ROLE 3: cluster-viewer
+# Phạm vi: Toàn cluster (ClusterRole)
+# Đối tượng: Auditor, viewer, hoặc thành viên mới cần quan sát hệ thống
+# Quyền: Chỉ ĐỌC (read-only) trên TẤT CẢ resources
+# =============================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: cluster-viewer
 rules:
+# Wildcard "*" cho cả apiGroups và resources
+# → Cho phép xem MỌI resource trên MỌI API group
+# Chỉ có verb đọc: get (xem chi tiết), list (liệt kê), watch (theo dõi)
+# KHÔNG có: create, update, patch, delete → hoàn toàn read-only
 - apiGroups: ["*"]
   resources: ["*"]
   verbs: ["get", "list", "watch"]

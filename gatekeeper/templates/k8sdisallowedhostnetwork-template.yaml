@@ -1,35 +1,81 @@
+# =============================================================================
+# File: k8sdisallowedhostnetwork-template.yaml
+# Mô tả: ConstraintTemplate của OPA Gatekeeper để CẤM sử dụng hostNetwork.
+#
+# hostNetwork là gì?
+#   Khi Pod được cấu hình với hostNetwork: true, Pod sẽ chia sẻ trực tiếp
+#   network namespace của Node (máy chủ). Điều này có nghĩa Pod có thể:
+#   - Truy cập tất cả network interface của Node
+#   - Lắng nghe trên bất kỳ port nào của Node
+#   - Nhìn thấy toàn bộ traffic mạng trên Node
+#
+# Tại sao đây là rủi ro bảo mật?
+#   - Pod có thể sniff (nghe lén) traffic của các Pod khác trên cùng Node
+#   - Pod có thể chiếm port của các dịch vụ hệ thống (kubelet, kube-proxy...)
+#   - Kẻ tấn công có thể leo thang đặc quyền (privilege escalation) từ Pod ra Node
+#   - Vi phạm nguyên tắc network isolation giữa các Pod
+#
+# Cách hoạt động:
+#   Template này tạo CRD "K8sDisallowedHostNetwork" để Gatekeeper kiểm tra
+#   mọi request tạo/cập nhật Pod, Deployment, Job... và từ chối nếu có
+#   hostNetwork: true.
+#
+# Thứ tự triển khai:
+#   sync-wave "-1" → Template được tạo TRƯỚC các Constraint sử dụng nó
+#   (Constraint có sync-wave "0" hoặc cao hơn)
+# =============================================================================
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: k8sdisallowedhostnetwork
   annotations:
+    # sync-wave "-1": ArgoCD triển khai template này trước các Constraint
+    # để đảm bảo CRD tồn tại khi Constraint được tạo
     argocd.argoproj.io/sync-wave: "-1"
 spec:
+  # Định nghĩa CRD (Custom Resource Definition) cho policy này
   crd:
     spec:
       names:
+        # Tên Kind sẽ được dùng khi tạo Constraint, ví dụ:
+        # kind: K8sDisallowedHostNetwork
         kind: K8sDisallowedHostNetwork
       validation:
         openAPIV3Schema:
+          # Policy này không cần tham số đầu vào (không có properties)
+          # vì quy tắc đơn giản: cấm toàn bộ hostNetwork: true
           type: object
   targets:
+  # Đăng ký policy với Gatekeeper Admission Webhook
   - target: admission.k8s.gatekeeper.sh
+    # Rego: ngôn ngữ policy của OPA (Open Policy Agent)
     rego: |
       package k8sdisallowedhostnetwork
 
+      # Rule chính: Nếu phát hiện hostNetwork được bật → vi phạm (violation)
+      # Gatekeeper sẽ từ chối admission request với thông báo lỗi msg
       violation[{"msg": msg}] {
         input_host_network_enabled
         msg := "hostNetwork: true is disallowed"
       }
 
+      # Rule 1: Kiểm tra trực tiếp trên Pod spec
+      # Áp dụng cho: Pod được tạo trực tiếp (không qua Deployment/Job)
+      # Path: spec.hostNetwork
       input_host_network_enabled {
         input.review.object.spec.hostNetwork == true
       }
 
+      # Rule 2: Kiểm tra trong template spec của Deployment/StatefulSet/DaemonSet
+      # Các controller này tạo Pod thông qua spec.template.spec
+      # Path: spec.template.spec.hostNetwork
       input_host_network_enabled {
         input.review.object.spec.template.spec.hostNetwork == true
       }
 
+      # Rule 3: Kiểm tra trong Job/CronJob template spec
+      # CronJob tạo Job → Job tạo Pod, nên path sâu hơn 1 cấp
+      # Path: spec.jobTemplate.spec.template.spec.hostNetwork
       input_host_network_enabled {
         input.review.object.spec.jobTemplate.spec.template.spec.hostNetwork == true
       }

@@ -1,23 +1,55 @@
-# ArgoCD App: Deploy PrometheusRule cho SLO alerts
+# =============================================================================
+# FILE: app-alert.yaml
+# MÔ TẢ: ArgoCD Application triển khai PrometheusRule cho SLO alerts
+# -----------------------------------------------------------------------------
+# Triển khai các PrometheusRule định nghĩa alert rules dựa trên SLO
+# (Service Level Objectives). Ví dụ:
+#   - Alert khi error rate > 1% (SLO 99% availability)
+#   - Alert khi latency P99 > 500ms (SLO latency)
+#   - Alert khi request success rate giảm dưới ngưỡng
+#
+# PrometheusRule là CRD của kube-prometheus-stack, cho phép định nghĩa
+# recording rules và alerting rules bằng PromQL.
+#
+# SYNC-WAVE: 1 (Áp dụng policy và workloads)
+#   - Wave -2: Cài đặt hạ tầng
+#   - Wave -1: Tạo namespace và cấu hình
+#   - Wave  0: Cài đặt Prometheus (cung cấp CRD PrometheusRule)
+#   → Wave  1: Triển khai alert rules ← FILE NÀY
+#   - Wave  2: Ứng dụng API (expose metrics để rules đánh giá)
+#
+# Phải ở wave 1 (sau wave 0) vì cần CRD PrometheusRule từ kube-prometheus-stack.
+# Alert rules cần có trước khi app API (wave 2) chạy để bắt đầu monitor ngay.
+#
+# PHỤ THUỘC: k8s-prometheus (wave 0) - cung cấp CRD PrometheusRule
+# ĐƯỢC PHỤ THUỘC BỞI: app-api (wave 2) - metrics từ API được đánh giá bởi rules
+# =============================================================================
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: alert
   namespace: argocd
   annotations:
+    # sync-wave: 1 → triển khai sau Prometheus (wave 0), trước app API (wave 2)
     argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
+    # Lấy manifest PrometheusRule từ thư mục app-alert/ trong Git
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: app-alert
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
+    # Triển khai vào namespace "monitoring" cùng với Prometheus stack
+    # Prometheus tự động discover PrometheusRule trong tất cả namespace
     namespace: monitoring
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
+    # ServerSideApply=true: Xử lý đúng field ownership cho PrometheusRule
+    # KHÔNG có CreateNamespace vì "monitoring" đã được tạo bởi k8s-prometheus (wave 0)
     - ServerSideApply=true

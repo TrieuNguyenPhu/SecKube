@@ -1,4 +1,28 @@
-# ArgoCD ignore: Không sync email-secret.yaml
-# Secret này phải apply thủ công
+# =============================================================================
+# FILE: .argocdignore
+# MÔ TẢ: Chỉ định các file mà ArgoCD KHÔNG được đồng bộ (sync) lên cluster.
+#
+# CÁCH HOẠT ĐỘNG:
+#   - ArgoCD đọc file .argocdignore trong thư mục gốc của Application path
+#   - Các file khớp pattern sẽ bị bỏ qua hoàn toàn khi ArgoCD sync
+#   - Cú pháp giống .gitignore (glob patterns)
+#
+# LÝ DO CẦN FILE NÀY:
+#   - email-secret.yaml chứa credentials thật — phải apply thủ công
+#     bằng kubectl, KHÔNG để ArgoCD tự động sync (vì file có thể
+#     chứa mật khẩu và không nên lưu trong Git repo)
+#   - README.md là tài liệu, không phải Kubernetes manifest
+#     ArgoCD sẽ báo lỗi nếu cố parse file không phải YAML/JSON
+#
+# QUY TRÌNH APPLY SECRET THỦ CÔNG:
+#   1. Copy email-secret.yaml.example → email-secret.yaml
+#   2. Điền credentials thật vào email-secret.yaml
+#   3. kubectl apply -f email-secret.yaml -n monitoring
+# =============================================================================
+
+# Secret chứa mật khẩu email — phải apply thủ công, không sync qua ArgoCD
+# Lý do: Tránh lưu credentials trong Git và tránh ArgoCD ghi đè Secret
 email-secret.yaml
+
+# File tài liệu — không phải Kubernetes resource, ArgoCD không cần xử lý
 README.md

@@ -1,11 +1,32 @@
+# ==============================================================================
+# File: good-deployment.yaml
+# Mục đích: Kiểm thử Deployment tuân thủ TẤT CẢ các chính sách Gatekeeper
+# Kết quả mong đợi: ĐƯỢC CHẤP NHẬN (ACCEPTED) bởi Admission Controller
+#
+# Deployment này tuân thủ đầy đủ tất cả các chính sách bảo mật:
+#   ✅ disallow-hostnetwork  → Không sử dụng hostNetwork
+#   ✅ disallow-latest-tag   → Image ghim phiên bản cụ thể (nginx:1.27.3)
+#   ✅ require-resource-limits → Có khai báo cpu & memory limits
+#   ✅ disallow-runasuser-root → Chạy non-root (UID 10001)
+#   ✅ custom-max-replicas    → Số replicas = 5, không vượt ngưỡng tối đa
+#
+# Đây là ví dụ mẫu (golden example) cho cách viết Deployment đúng chuẩn bảo mật.
+#
+# Cách kiểm thử:
+#   kubectl apply -f good-deployment.yaml
+#   → Gatekeeper sẽ cho phép tạo Deployment thành công
+# ==============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: good-five-replicas
   namespace: demo
 spec:
+  # replicas: 5 → nằm trong giới hạn cho phép (maxReplicas = 5)
   replicas: 5
   selector:
+    # matchLabels phải khớp chính xác với labels trong template.metadata.labels
+    # để Deployment biết quản lý đúng các Pod thuộc về nó
     matchLabels:
       app: good-five-replicas
   template:
@@ -14,13 +35,19 @@ spec:
         app: good-five-replicas
     spec:
       securityContext:
+        # runAsNonRoot: true → kernel sẽ từ chối chạy container nếu UID = 0
         runAsNonRoot: true
+        # runAsUser: 10001 → UID không phải root, tuân thủ chính sách bảo mật
         runAsUser: 10001
+        # runAsGroup: 10001 → GID không phải root
         runAsGroup: 10001
       containers:
       - name: nginx
+        # Image ghim phiên bản cụ thể 1.27.3 → đảm bảo tính tái lặp khi triển khai
         image: nginx:1.27.3
         resources:
+          # Khai báo limits đầy đủ cho cpu và memory
+          # Kubernetes sẽ throttle CPU và kill container (OOMKill) nếu vượt memory limit
           limits:
-            cpu: 100m
-            memory: 64Mi
+            cpu: 100m       # 100 milliCPU = 0.1 CPU core
+            memory: 64Mi    # 64 Mebibytes RAM

@@ -1,5 +1,37 @@
-# CI validate manifest (W9 base). Path khop voi cau truc repo W10.
+# =============================================================================
+# PIPELINE CI: Validate Kubernetes Manifests
+# =============================================================================
+# Mục đích:
+#   Kiểm tra tính hợp lệ (validate) của tất cả Kubernetes manifest files
+#   trước khi merge vào nhánh chính. Đảm bảo các file YAML tuân thủ đúng
+#   Kubernetes API schema, phát hiện lỗi cú pháp và cấu hình sai sớm.
+#
+# Vai trò trong kiến trúc:
+#   - Đây là "cổng kiểm tra" (quality gate) trong quy trình Pull Request.
+#   - Ngăn chặn manifest sai cú pháp được merge → ArgoCD sẽ không bị lỗi
+#     khi đồng bộ (sync) lên Kubernetes cluster.
+#   - Bổ sung cho pipeline build-push.yml: file kia lo phần Docker image,
+#     file này lo phần Kubernetes manifest.
+#
+# Công cụ: kubeconform (https://github.com/yannh/kubeconform)
+#   - Nhẹ, nhanh hơn kubeval (deprecated)
+#   - Hỗ trợ validate theo Kubernetes API schema chính thức
+#   - Hỗ trợ bỏ qua CRD (Custom Resource Definition) không có schema
+# =============================================================================
 name: validate
+
+# -----------------------------------------------------------------------------
+# TRIGGER: Chạy khi có Pull Request thay đổi các thư mục Kubernetes manifests
+# -----------------------------------------------------------------------------
+# Chỉ kích hoạt khi PR có thay đổi trong các thư mục chứa manifest:
+#   - app-api/       → Manifest cho API service (Rollout, Service, Ingress...)
+#   - app-analysis/  → Manifest cho Analysis service
+#   - app-alert/     → Manifest cho Alert service
+#   - app-common/    → Manifest dùng chung (namespace, secrets, configmap...)
+#   - argocd/        → Cấu hình ArgoCD Application
+#   - eso/           → External Secrets Operator (đồng bộ secrets từ Vault/AWS...)
+#   - policies/      → OPA Gatekeeper policies (ConstraintTemplate, Constraint)
+# Không kích hoạt khi chỉ thay đổi code (src/) → tránh validate thừa
 on:
   pull_request:
     paths:
@@ -15,16 +47,48 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
+    # -------------------------------------------------------------------------
+    # Bước 1: Checkout mã nguồn
+    # -------------------------------------------------------------------------
+    # Lấy code từ PR branch để validate các file manifest đã thay đổi
     - uses: actions/checkout@v4
 
+    # -------------------------------------------------------------------------
+    # Bước 2: Cài đặt kubeconform
+    # -------------------------------------------------------------------------
+    # Tải và cài đặt kubeconform v0.6.7 — công cụ validate Kubernetes YAML.
+    # kubeconform kiểm tra manifest dựa trên OpenAPI schema chính thức của
+    # Kubernetes, đảm bảo các field, type, và giá trị đều hợp lệ.
     - name: Install kubeconform
       run: |
         curl -sSLo kc.tgz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
         tar -xzf kc.tgz
         sudo mv kubeconform /usr/local/bin/
 
-    # -ignore-missing-schemas: bo qua CRD chua biet schema (Rollout, Application,
-    # ServiceMonitor, PrometheusRule, AnalysisTemplate...)
+    # -------------------------------------------------------------------------
+    # Bước 3: Validate tất cả Kubernetes manifests
+    # -------------------------------------------------------------------------
+    # Các flag quan trọng:
+    #   -strict  → Báo lỗi nếu manifest chứa field không có trong schema
+    #              (phát hiện typo hoặc field sai tên, ví dụ: "replicas" viết
+    #              thành "replica" sẽ bị bắt)
+    #   -summary → Hiển thị bảng tổng kết: bao nhiêu file pass/fail/skip
+    #
+    #   -ignore-missing-schemas → BỎ QUA các resource không có schema chuẩn
+    #     Kubernetes. Đây là flag QUAN TRỌNG vì dự án sử dụng nhiều CRD
+    #     (Custom Resource Definitions) từ bên thứ ba mà kubeconform không
+    #     biết schema. Các CRD bị bỏ qua bao gồm:
+    #       - Rollout (Argo Rollouts) — chiến lược canary/blue-green deployment
+    #       - Application (ArgoCD) — định nghĩa ứng dụng GitOps
+    #       - ServiceMonitor, PrometheusRule (Prometheus Operator) — giám sát
+    #       - AnalysisTemplate (Argo Rollouts) — phân tích canary
+    #       - ConstraintTemplate, Constraint (OPA Gatekeeper) — chính sách bảo mật
+    #       - ExternalSecret, SecretStore (ESO) — quản lý secrets
+    #     Nếu KHÔNG có flag này, kubeconform sẽ báo lỗi cho tất cả CRD
+    #     → pipeline sẽ luôn fail dù manifest hoàn toàn đúng.
+    #
+    # Danh sách thư mục validate trùng khớp với paths trigger ở trên,
+    # đảm bảo mọi thư mục được theo dõi đều được kiểm tra.
     - name: Validate manifests
       run: |
         kubeconform -strict -summary -ignore-missing-schemas \

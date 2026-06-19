@@ -1,22 +1,56 @@
+# =============================================================================
+# FILE: rbac.yaml
+# MÔ TẢ: ArgoCD Application triển khai RBAC (Role-Based Access Control)
+# -----------------------------------------------------------------------------
+# Triển khai các Role, ClusterRole, RoleBinding, ClusterRoleBinding để
+# kiểm soát quyền truy cập trong cluster theo nguyên tắc Least Privilege
+# (quyền tối thiểu cần thiết).
+#
+# RBAC trong Kubernetes:
+#   - Role/ClusterRole: Định nghĩa TẬP HỢP QUYỀN (get, list, create, delete, v.v.)
+#     trên các resource (pods, services, secrets, v.v.)
+#   - RoleBinding/ClusterRoleBinding: GÁN quyền cho user, group, hoặc ServiceAccount
+#   - Role/RoleBinding: Phạm vi namespace
+#   - ClusterRole/ClusterRoleBinding: Phạm vi toàn cluster
+#
+# SYNC-WAVE: 1 (Áp dụng policy và workloads)
+#   - Wave -1: Tạo namespace "demo" (app-common)
+#   - Wave  0: Cài đặt monitoring, rollouts
+#   → Wave  1: Triển khai RBAC ← FILE NÀY
+#   - Wave  2: Ứng dụng API (chạy với ServiceAccount được phân quyền)
+#
+# Phải ở wave 1 vì:
+#   1. Namespace "demo" cần tồn tại trước (cho Role/RoleBinding namespace-scoped)
+#   2. RBAC phải có trước khi app API (wave 2) chạy để Pod có đúng quyền
+#
+# PHỤ THUỘC: app-common (wave -1) - tạo namespace "demo"
+# ĐƯỢC PHỤ THUỘC BỞI: app-api (wave 2) - Pod chạy với quyền RBAC đã cấu hình
+# =============================================================================
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: rbac
   namespace: argocd
   annotations:
+    # sync-wave: 1 → triển khai sau namespace (wave -1), trước app API (wave 2)
     argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
+    # Lấy manifest Role, RoleBinding, v.v. từ thư mục rbac/ trong Git
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: rbac
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
+    # Triển khai vào namespace "demo" - cùng namespace với ứng dụng API
     namespace: demo
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
+    # ServerSideApply=true: Xử lý đúng field ownership cho RBAC resources
+    # KHÔNG có CreateNamespace vì "demo" đã được tạo bởi app-common (wave -1)
     - ServerSideApply=true

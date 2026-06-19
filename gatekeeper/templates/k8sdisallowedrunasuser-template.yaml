@@ -1,10 +1,37 @@
+# =============================================================================
+# File: k8sdisallowedrunasuser-template.yaml
+# Mô tả: ConstraintTemplate của OPA Gatekeeper để CẤM container chạy với
+#         user ID (UID) cụ thể, đặc biệt là root (UID 0).
+#
+# Tại sao chạy container dưới quyền root (UID 0) nguy hiểm?
+#   - Container chạy root có toàn quyền trong filesystem của container
+#   - Nếu container bị tấn công (container escape), kẻ tấn công có quyền
+#     root trên Node → kiểm soát toàn bộ cluster
+#   - Root có thể sửa đổi file hệ thống, cài đặt malware, truy cập
+#     sensitive data của các Pod khác
+#   - Vi phạm nguyên tắc "Principle of Least Privilege" (đặc quyền tối thiểu)
+#
+# Cách hoạt động:
+#   Template kiểm tra trường runAsUser trong securityContext ở 2 cấp:
+#   1. Pod-level securityContext (áp dụng cho tất cả container trong Pod)
+#   2. Container-level securityContext (từng container riêng lẻ)
+#   So sánh UID với danh sách users bị cấm được truyền qua tham số.
+#
+# Tham số đầu vào (parameters):
+#   users: danh sách các UID bị cấm, ví dụ [0] để cấm root
+#
+# Thứ tự triển khai:
+#   sync-wave "-1" → Template được tạo TRƯỚC các Constraint sử dụng nó
+# =============================================================================
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: k8sdisallowedrunasuser
   annotations:
+    # sync-wave "-1": ArgoCD triển khai template này trước các Constraint
     argocd.argoproj.io/sync-wave: "-1"
 spec:
+  # Định nghĩa CRD cho policy này
   crd:
     spec:
       names:
@@ -13,15 +40,25 @@ spec:
         openAPIV3Schema:
           type: object
           properties:
+            # Tham số "users": danh sách các UID (số nguyên) bị cấm
+            # Ví dụ: users: [0] → cấm chạy dưới quyền root
+            # Ví dụ: users: [0, 1000] → cấm root và UID 1000
             users:
               type: array
               items:
                 type: integer
   targets:
+  # Đăng ký policy với Gatekeeper Admission Webhook
   - target: admission.k8s.gatekeeper.sh
     rego: |
       package k8sdisallowedrunasuser
 
+      # =====================================================================
+      # RULE CHÍNH: Kiểm tra vi phạm
+      # Lấy tất cả UID từ helper rule input_run_as_users, so sánh với
+      # danh sách UID bị cấm (input.parameters.users).
+      # Nếu trùng khớp → vi phạm, từ chối admission request.
+      # =====================================================================
       violation[{"msg": msg}] {
         user := input_run_as_users[_]
         disallowed := input.parameters.users[_]
@@ -29,43 +66,71 @@ spec:
         msg := sprintf("runAsUser <%v> is disallowed", [user])
       }
 
+      # =====================================================================
+      # HELPER RULES: Thu thập runAsUser từ Pod-level securityContext
+      # securityContext ở cấp Pod áp dụng mặc định cho TẤT CẢ container
+      # trong Pod đó (trừ khi container override bằng securityContext riêng)
+      # =====================================================================
+
+      # Rule 1: Pod trực tiếp - spec.securityContext.runAsUser
       input_run_as_users[user] {
         user := input.review.object.spec.securityContext.runAsUser
       }
 
+      # Rule 2: Deployment/StatefulSet/DaemonSet - spec.template.spec.securityContext.runAsUser
       input_run_as_users[user] {
         user := input.review.object.spec.template.spec.securityContext.runAsUser
       }
 
+      # Rule 3: CronJob/Job - spec.jobTemplate.spec.template.spec.securityContext.runAsUser
       input_run_as_users[user] {
         user := input.review.object.spec.jobTemplate.spec.template.spec.securityContext.runAsUser
       }
 
+      # =====================================================================
+      # HELPER RULES: Thu thập runAsUser từ Container-level securityContext
+      # Mỗi container có thể có securityContext riêng, override Pod-level.
+      # Cần kiểm tra cả 2 cấp để không bỏ sót trường hợp nào.
+      # =====================================================================
+
+      # Rule 4: Lấy UID từ securityContext của từng container riêng lẻ
       input_run_as_users[user] {
         container := input_containers[_]
         user := container.securityContext.runAsUser
       }
 
+      # =====================================================================
+      # HELPER RULES: Thu thập tất cả container từ mọi loại resource
+      # Bao gồm cả containers (chính) và initContainers (khởi tạo)
+      # initContainers chạy trước containers chính, cũng cần kiểm tra
+      # =====================================================================
+
+      # Pod trực tiếp - containers chính
       input_containers[c] {
         c := input.review.object.spec.containers[_]
       }
 
+      # Pod trực tiếp - initContainers (container khởi tạo)
       input_containers[c] {
         c := input.review.object.spec.initContainers[_]
       }
 
+      # Deployment/StatefulSet/DaemonSet - containers chính
       input_containers[c] {
         c := input.review.object.spec.template.spec.containers[_]
       }
 
+      # Deployment/StatefulSet/DaemonSet - initContainers
       input_containers[c] {
         c := input.review.object.spec.template.spec.initContainers[_]
       }
 
+      # CronJob/Job - containers chính
       input_containers[c] {
         c := input.review.object.spec.jobTemplate.spec.template.spec.containers[_]
       }
 
+      # CronJob/Job - initContainers
       input_containers[c] {
         c := input.review.object.spec.jobTemplate.spec.template.spec.initContainers[_]
       }

@@ -1,18 +1,50 @@
-# Service: Expose API pods
-# Sync wave 1: Expose pods sau khi Rollout đã tạo
+# =============================================================================
+# FILE: service.yaml
+# MÔ TẢ: Kubernetes Service để expose Flask API pods ra mạng nội bộ cluster.
+#
+# VAI TRÒ TRONG KIẾN TRÚC:
+#   - Tạo một "virtual IP" (ClusterIP) ổn định để các service khác gọi API
+#   - Tự động load-balance traffic đến các pods có label "app: api"
+#   - Trong canary deployment, Argo Rollouts tạo thêm canary Service để
+#     điều phối traffic giữa stable và canary pods
+#   - ServiceMonitor (servicemonitor.yaml) tham chiếu Service này qua label
+#     để Prometheus biết scrape metrics từ đâu
+#
+# THỨ TỰ TRIỂN KHAI:
+#   - Wave 0: Namespace + Rollout (pods được tạo trước)
+#   - Wave 1: Service (file này) — expose pods đã sẵn sàng
+#   - Wave 2: ServiceMonitor — bắt đầu thu thập metrics
+#
+# LÝ DO SYNC-WAVE 1:
+#   Service phải deploy SAU Rollout (wave 0) vì nếu Service tạo trước
+#   khi pods tồn tại, sẽ không có endpoints → có thể gây lỗi cho
+#   các thành phần phụ thuộc (Ingress, AnalysisTemplate query, v.v.)
+# =============================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
   name: api
+  # Namespace "demo" — cùng namespace với Rollout để selector hoạt động
   namespace: demo
   labels:
+    # Label "app: api" — ServiceMonitor dùng label này để tìm Service
     app: api
   annotations:
+    # Sync-wave "1": Deploy sau Rollout (wave 0), trước ServiceMonitor (wave 2)
+    # Đảm bảo thứ tự: Pods → Service → Monitoring
     argocd.argoproj.io/sync-wave: "1"
 spec:
+  # Selector tìm tất cả pods có label "app: api" trong namespace "demo"
+  # Phải khớp với labels trong Rollout template.metadata.labels
   selector:
     app: api
   ports:
+  # Ánh xạ port: Service port 80 → Container port 8080
+  # - port 80: Port mà các client trong cluster gọi đến (http://api.demo.svc:80)
+  # - targetPort 8080: Port thực tế mà Flask container lắng nghe
+  # - name "http": Tên port — ServiceMonitor tham chiếu tên này để xác định
+  #   endpoint cần scrape metrics (xem servicemonitor.yaml)
   - name: http
     port: 80
     targetPort: 8080

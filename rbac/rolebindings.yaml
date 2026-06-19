@@ -1,30 +1,77 @@
+# =============================================================================
+# File: rbac/rolebindings.yaml
+# Mô tả: Gán (bind) các Role/ClusterRole cho user cụ thể.
+#
+# Mục đích:
+#   - Role/ClusterRole chỉ định nghĩa quyền, nhưng CHƯA gán cho ai.
+#   - RoleBinding/ClusterRoleBinding là bước cuối để kích hoạt phân quyền,
+#     liên kết user/group với role tương ứng.
+#
+# Bảng phân quyền:
+#   ┌─────────┬──────────────────────────────┬────────────────────┐
+#   │  User   │          Role                │    Phạm vi         │
+#   ├─────────┼──────────────────────────────┼────────────────────┤
+#   │  alice  │ developer-workload-manager   │ Namespace: demo    │
+#   │  bob    │ sre-pod-operator             │ Toàn cluster       │
+#   │  carol  │ cluster-viewer               │ Toàn cluster       │
+#   └─────────┴──────────────────────────────┴────────────────────┘
+#
+# Lưu ý:
+#   - RoleBinding: gán quyền trong 1 namespace cụ thể
+#   - ClusterRoleBinding: gán quyền trên toàn bộ cluster
+#   - Xem roles.yaml để biết chi tiết quyền của từng role
+# =============================================================================
+
+# =============================================================================
+# BINDING 1: alice → developer-workload-manager
+# Loại: RoleBinding (chỉ trong namespace demo)
+# Alice là developer, được quyền quản lý workload trong namespace demo
+# =============================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: alice-developer
+  # RoleBinding bị giới hạn trong namespace demo
+  # Alice chỉ có quyền trong namespace này, không ảnh hưởng namespace khác
   namespace: demo
+# subjects: danh sách user/group/serviceAccount được gán quyền
 subjects:
 - kind: User
   name: alice
   apiGroup: rbac.authorization.k8s.io
+# roleRef: tham chiếu đến Role/ClusterRole cần gán
+# Lưu ý: roleRef không thể thay đổi sau khi tạo, phải xóa và tạo lại
 roleRef:
   kind: Role
   name: developer-workload-manager
   apiGroup: rbac.authorization.k8s.io
 ---
+# =============================================================================
+# BINDING 2: bob → sre-pod-operator
+# Loại: ClusterRoleBinding (toàn cluster)
+# Bob là SRE, được quyền quản lý pod + exec trên toàn bộ cluster
+# =============================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  # ClusterRoleBinding không có namespace - áp dụng toàn cluster
   name: bob-sre-pod-operator
 subjects:
 - kind: User
   name: bob
   apiGroup: rbac.authorization.k8s.io
 roleRef:
+  # Tham chiếu ClusterRole "sre-pod-operator" định nghĩa trong roles.yaml
   kind: ClusterRole
   name: sre-pod-operator
   apiGroup: rbac.authorization.k8s.io
 ---
+# =============================================================================
+# BINDING 3: carol → cluster-viewer
+# Loại: ClusterRoleBinding (toàn cluster)
+# Carol là auditor/viewer, chỉ có quyền đọc trên toàn bộ cluster
+# Phù hợp cho: thành viên mới, auditor, hoặc người cần quan sát hệ thống
+# =============================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -34,6 +81,7 @@ subjects:
   name: carol
   apiGroup: rbac.authorization.k8s.io
 roleRef:
+  # Tham chiếu ClusterRole "cluster-viewer" - chỉ có quyền get/list/watch
   kind: ClusterRole
   name: cluster-viewer
   apiGroup: rbac.authorization.k8s.io

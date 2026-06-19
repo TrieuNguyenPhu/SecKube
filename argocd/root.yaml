@@ -1,25 +1,68 @@
-# Lab 5: app-of-apps root
-# Root App: App of Apps pattern - quản lý tất cả child applications
+# =============================================================================
+# File: argocd/root.yaml
+# Mô tả: Root Application trong mô hình App-of-Apps của ArgoCD.
+#
+# Mục đích:
+#   - Đây là Application "gốc" (root) duy nhất được tạo thủ công trên ArgoCD.
+#   - Nó quét thư mục argocd/apps/ trong repo Git và tự động tạo/quản lý
+#     tất cả các child Application được khai báo bên trong.
+#   - Nhờ mô hình App-of-Apps, ta chỉ cần quản lý 1 Application duy nhất
+#     trên ArgoCD, các app con sẽ được đồng bộ tự động từ Git.
+#
+# Kiến trúc:
+#   root.yaml (file này)
+#     └── argocd/apps/*.yaml  (các child Application)
+#           ├── app.yaml         → triển khai ứng dụng chính
+#           ├── gatekeeper.yaml  → triển khai OPA Gatekeeper
+#           ├── eso.yaml         → triển khai External Secrets Operator
+#           └── ...              → các app khác
+#
+# Lưu ý: File này cần được apply thủ công 1 lần duy nhất bằng kubectl.
+#         Sau đó ArgoCD sẽ tự quản lý mọi thứ từ Git.
+# =============================================================================
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: root
+  # Triển khai trong namespace argocd - nơi ArgoCD server đang chạy
   namespace: argocd
 spec:
+  # Sử dụng project "default" của ArgoCD (cho phép deploy tất cả resource)
   project: default
+
+  # --- Nguồn Git chứa các child Application ---
   source:
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
+    # Thư mục chứa các file YAML định nghĩa child Application
     path: argocd/apps
+    # Theo dõi nhánh main - mọi thay đổi trên main sẽ được đồng bộ
     targetRevision: main
+
+  # --- Đích triển khai ---
   destination:
+    # API server của chính cluster hiện tại (in-cluster)
     server: https://kubernetes.default.svc
+    # Các child Application sẽ được tạo trong namespace argocd
     namespace: argocd
+
+  # --- Chính sách đồng bộ tự động ---
   syncPolicy:
     automated:
+      # prune: Tự động XÓA resource trên cluster nếu bị xóa khỏi Git
+      # Đảm bảo cluster luôn phản ánh đúng trạng thái trong Git (GitOps)
       prune: true
+      # selfHeal: Tự động KHÔI PHỤC nếu ai đó sửa trực tiếp trên cluster
+      # Ngăn chặn configuration drift - mọi thay đổi phải qua Git
       selfHeal: true
     syncOptions:
+    # Tôn trọng cấu hình ignoreDifferences bên dưới khi so sánh trạng thái
     - RespectIgnoreDifferences=true
+
+  # --- Bỏ qua sự khác biệt không cần thiết ---
+  # ArgoCD đôi khi phát hiện "drift" giả do các trường được tự động thêm vào.
+  # Cấu hình này yêu cầu bỏ qua trường /spec/ignoreDifferences của app gatekeeper
+  # để tránh vòng lặp sync không cần thiết.
   ignoreDifferences:
   - group: argoproj.io
     kind: Application

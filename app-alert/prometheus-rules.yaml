@@ -1,31 +1,90 @@
-# SLO Alert Rule: Fire khi success rate < 95%
+# =============================================================================
+# FILE: prometheus-rules.yaml
+# MÔ TẢ: Định nghĩa PrometheusRule với SLI recording rule và SLO alert.
+#
+# VAI TRÒ TRONG KIẾN TRÚC:
+#   - Tính toán SLI (Service Level Indicator): tỷ lệ request thành công
+#   - Cảnh báo khi SLO (Service Level Objective) bị vi phạm
+#   - Recording rule tạo metric mới "api:success_rate:5m" — được lưu
+#     trong Prometheus TSDB để query nhanh hơn (thay vì tính lại mỗi lần)
+#   - Alert "SLOViolation" kích hoạt AlertManager gửi email thông báo
+#     (email-secret.yaml cung cấp credentials cho AlertManager)
+#
+# KHÁI NIỆM SLI/SLO:
+#   - SLI (Service Level Indicator): Thước đo chất lượng dịch vụ
+#     → Ở đây là tỷ lệ request thành công (không phải 5xx)
+#   - SLO (Service Level Objective): Mục tiêu chất lượng
+#     → Ở đây là success rate >= 95%
+#   - Khi SLI < SLO trong thời gian "for" → alert được kích hoạt
+#
+# LIÊN KẾT VỚI CÁC THÀNH PHẦN KHÁC:
+#   - ServiceMonitor (app-api/) thu thập metrics thô từ Flask API
+#   - AnalysisTemplate (app-analysis/) cũng dùng metrics tương tự
+#     nhưng với ngưỡng 90% (cho canary) thay vì 95% (cho production)
+#   - AlertManager sử dụng email-secret.yaml để gửi thông báo
+# =============================================================================
+
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: slo-alerts
+  # Namespace "monitoring" — nơi kube-prometheus-stack được cài đặt
+  # PrometheusRule phải ở cùng namespace với Prometheus instance
   namespace: monitoring
   labels:
+    # Labels bắt buộc để Prometheus Operator tự động load rule này
+    # Phải khớp với ruleSelector trong Prometheus CR configuration
+    # kube-prometheus-stack Helm chart yêu cầu cả hai labels này
     prometheus: kube-prometheus-stack
     release: kube-prometheus-stack
 spec:
   groups:
+  # Nhóm rule "slo" — chứa cả recording rules và alerting rules
   - name: slo
+    # interval: Tần suất đánh giá rules (mỗi 30 giây)
+    # Ngắn hơn mặc định (1 phút) để phát hiện SLO violation nhanh hơn
     interval: 30s
     rules:
-    
-    # SLI: Success rate
+
+    # =================================================================
+    # RECORDING RULE: Tính SLI (Success Rate) trung bình 5 phút
+    # =================================================================
+    # Recording rule tạo metric mới từ PromQL query phức tạp
+    # Ưu điểm: Query nhanh hơn vì kết quả được tính trước và lưu sẵn
+    # Quy ước đặt tên: <service>:<metric>:<window>
     - record: api:success_rate:5m
       expr: |
         sum(rate(flask_http_request_duration_seconds_count{status!~"5.."}[5m]))
         /
         sum(rate(flask_http_request_duration_seconds_count[5m]))
+      # GIẢI THÍCH PromQL:
+      # - flask_http_request_duration_seconds_count: Counter tổng số requests
+      #   (được Flask prometheus-instrumentator tạo tự động)
+      # - {status!~"5.."}: Lọc bỏ requests có HTTP status 5xx (server errors)
+      #   Regex "5.." khớp với 500, 501, 502, 503, v.v.
+      # - rate(...[5m]): Tính tốc độ tăng trung bình trong 5 phút (requests/giây)
+      # - sum(): Tổng hợp tất cả instances/endpoints
+      # - Kết quả: (requests thành công / tổng requests) = tỷ lệ thành công
+      #   Ví dụ: 0.98 = 98% requests thành công
 
-    # Alert: Success rate < 95% (SLO violation)
+    # =================================================================
+    # ALERTING RULE: Cảnh báo khi SLO bị vi phạm
+    # =================================================================
+    # Alert kích hoạt khi success rate < 95% liên tục trong 2 phút
     - alert: SLOViolation
+      # Sử dụng recording rule đã tính ở trên thay vì PromQL phức tạp
       expr: api:success_rate:5m < 0.95
+      # "for: 2m": Alert chỉ fire sau khi điều kiện đúng liên tục 2 phút
+      # Tránh false positive do spike tạm thời hoặc dao động ngắn
       for: 2m
       labels:
+        # Severity "critical": AlertManager sẽ route đến kênh ưu tiên cao
+        # (email ngay lập tức thay vì Slack/nhóm thông thường)
         severity: critical
       annotations:
+        # summary: Tiêu đề ngắn gọn cho notification
         summary: "API SLO Violation"
+        # description: Chi tiết — hiển thị success rate thực tế
+        # {{ $value | humanizePercentage }}: Template function của Prometheus
+        # chuyển 0.93 → "93%" cho dễ đọc
         description: "Success rate {{ $value | humanizePercentage }} (SLO: 95%)"

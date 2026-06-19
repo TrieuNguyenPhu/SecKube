@@ -1,10 +1,36 @@
+# =============================================================================
+# File: k8srequiredresourcelimits-template.yaml
+# Mô tả: ConstraintTemplate của OPA Gatekeeper để BẮT BUỘC khai báo
+#         resource limits (giới hạn tài nguyên) cho tất cả container.
+#
+# Tại sao resource limits quan trọng?
+#   - Không có limits → container có thể tiêu thụ TOÀN BỘ CPU/memory
+#     của Node, gây ảnh hưởng đến các Pod khác (noisy neighbor)
+#   - Kubernetes scheduler cần limits để quyết định đặt Pod lên Node nào.
+#     Không có limits → scheduler không ước tính được tài nguyên cần thiết
+#   - OOM Kill (Out Of Memory): Container không có memory limit có thể bị
+#     kernel kill bất ngờ khi Node hết memory, gây downtime
+#   - CPU throttling: Không có CPU limit → container có thể chiếm hết
+#     CPU cycles, làm chậm toàn bộ workload trên Node
+#   - Autoscaling: HPA (Horizontal Pod Autoscaler) cần resource metrics
+#     để quyết định scale. Không có limits/requests → HPA không hoạt động
+#   - Cost management: Limits giúp ước tính chi phí hạ tầng chính xác
+#
+# Tham số đầu vào (parameters):
+#   limits: danh sách tên resource bắt buộc, ví dụ ["cpu", "memory"]
+#
+# Thứ tự triển khai:
+#   sync-wave "-1" → Template được tạo TRƯỚC các Constraint sử dụng nó
+# =============================================================================
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: k8srequiredresourcelimits
   annotations:
+    # sync-wave "-1": ArgoCD triển khai template này trước các Constraint
     argocd.argoproj.io/sync-wave: "-1"
 spec:
+  # Định nghĩa CRD cho policy này
   crd:
     spec:
       names:
@@ -13,15 +39,34 @@ spec:
         openAPIV3Schema:
           type: object
           properties:
+            # Tham số "limits": danh sách resource bắt buộc phải có limits
+            # Ví dụ: limits: ["cpu", "memory"] → bắt buộc cả CPU và memory
+            # Ví dụ: limits: ["memory"] → chỉ bắt buộc memory limit
             limits:
               type: array
               items:
                 type: string
   targets:
+  # Đăng ký policy với Gatekeeper Admission Webhook
   - target: admission.k8s.gatekeeper.sh
     rego: |
       package k8srequiredresourcelimits
 
+      # =====================================================================
+      # RULE CHÍNH: Kiểm tra container có đầy đủ resource limits không
+      #
+      # Logic sử dụng phép toán tập hợp (set operations) của Rego:
+      #   1. required: tập hợp các resource BẮT BUỘC (từ parameters)
+      #      Ví dụ: {"cpu", "memory"}
+      #   2. provided: tập hợp các resource ĐÃ KHAI BÁO trong container
+      #      Lấy từ container.resources.limits (nếu có)
+      #   3. missing = required - provided: phép trừ tập hợp
+      #      → tìm ra resource nào bắt buộc nhưng chưa được khai báo
+      #   4. count(missing) > 0: nếu còn resource thiếu → vi phạm
+      #
+      # Ví dụ: required={"cpu","memory"}, provided={"memory"}
+      #         → missing={"cpu"} → vi phạm vì thiếu CPU limit
+      # =====================================================================
       violation[{"msg": msg}] {
         container := input_containers[_]
         required := {resource | resource := input.parameters.limits[_]}
@@ -31,26 +76,38 @@ spec:
         msg := sprintf("container <%s> is missing required resource limits: %v", [container.name, missing])
       }
 
+      # =====================================================================
+      # HELPER RULES: Thu thập tất cả container từ mọi loại resource
+      # Kiểm tra cả containers chính và initContainers vì initContainers
+      # cũng tiêu thụ tài nguyên khi chạy (giai đoạn khởi tạo Pod)
+      # =====================================================================
+
+      # Pod trực tiếp - containers chính
       input_containers[c] {
         c := input.review.object.spec.containers[_]
       }
 
+      # Pod trực tiếp - initContainers
       input_containers[c] {
         c := input.review.object.spec.initContainers[_]
       }
 
+      # Deployment/StatefulSet/DaemonSet - containers chính
       input_containers[c] {
         c := input.review.object.spec.template.spec.containers[_]
       }
 
+      # Deployment/StatefulSet/DaemonSet - initContainers
       input_containers[c] {
         c := input.review.object.spec.template.spec.initContainers[_]
       }
 
+      # CronJob/Job - containers chính
       input_containers[c] {
         c := input.review.object.spec.jobTemplate.spec.template.spec.containers[_]
       }
 
+      # CronJob/Job - initContainers
       input_containers[c] {
         c := input.review.object.spec.jobTemplate.spec.template.spec.initContainers[_]
       }

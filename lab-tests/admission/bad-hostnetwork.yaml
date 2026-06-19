@@ -1,17 +1,39 @@
+# ==============================================================================
+# File: bad-hostnetwork.yaml
+# Mục đích: Kiểm thử chính sách Gatekeeper "disallow-hostnetwork"
+# Kết quả mong đợi: BỊ TỪ CHỐI (REJECTED) bởi Admission Controller
+# Constraint vi phạm: disallow-hostnetwork (ConstraintTemplate: K8sDisallowHostNetwork)
+#
+# Giải thích:
+#   Pod này cố tình bật hostNetwork: true, cho phép container truy cập trực tiếp
+#   vào network stack của node (máy chủ). Đây là rủi ro bảo mật nghiêm trọng vì:
+#   - Container có thể lắng nghe (sniff) toàn bộ traffic mạng của node
+#   - Container có thể bind vào bất kỳ port nào trên node
+#   - Container có thể truy cập các service nội bộ qua localhost của node
+#
+# Cách kiểm thử:
+#   kubectl apply -f bad-hostnetwork.yaml
+#   → Gatekeeper sẽ chặn và trả về lỗi vi phạm chính sách
+# ==============================================================================
 apiVersion: v1
 kind: Pod
 metadata:
   name: bad-hostnetwork
   namespace: demo
 spec:
+  # VI PHẠM: hostNetwork: true cho phép Pod dùng chung network namespace với node
+  # Gatekeeper constraint "disallow-hostnetwork" sẽ phát hiện và chặn cấu hình này
   hostNetwork: true
+  # Khi dùng hostNetwork, phải đổi dnsPolicy để Pod vẫn resolve được DNS nội bộ cluster
   dnsPolicy: ClusterFirstWithHostNet
   securityContext:
+    # Các cấu hình bảo mật khác đều tuân thủ (non-root, UID > 10000)
     runAsNonRoot: true
     runAsUser: 10001
     runAsGroup: 10001
   containers:
   - name: nginx
+    # Image đã ghim phiên bản cụ thể (không dùng "latest") → tuân thủ chính sách tag
     image: nginx:1.27.3
     resources:
       limits:

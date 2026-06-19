@@ -1,10 +1,34 @@
+# =============================================================================
+# File: k8smaxreplicas-template.yaml
+# Mô tả: ConstraintTemplate của OPA Gatekeeper để GIỚI HẠN số lượng replica
+#         tối đa cho Deployment, ReplicaSet, hoặc Argo Rollout.
+#
+# Tại sao cần giới hạn số replica?
+#   - Kiểm soát tài nguyên: Mỗi replica tiêu thụ CPU, memory trên cluster.
+#     Không giới hạn → 1 team có thể scale quá nhiều, ảnh hưởng team khác.
+#   - Tránh "noisy neighbor": Trong môi trường multi-tenant, replica không
+#     kiểm soát có thể chiếm hết resource của namespace/cluster.
+#   - Chi phí cloud: Nhiều replica → nhiều Node → tăng chi phí hạ tầng.
+#   - Bảo vệ cluster: Ngăn chặn cấu hình sai (ví dụ: replicas: 1000)
+#     gây quá tải cluster, ảnh hưởng tất cả workload.
+#   - Tuân thủ resource quota: Bổ sung cho ResourceQuota, kiểm soát ở
+#     admission level thay vì chờ scheduler từ chối.
+#
+# Tham số đầu vào (parameters):
+#   maxReplicas: số replica tối đa được phép (số nguyên)
+#
+# Thứ tự triển khai:
+#   sync-wave "-1" → Template được tạo TRƯỚC các Constraint sử dụng nó
+# =============================================================================
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: k8smaxreplicas
   annotations:
+    # sync-wave "-1": ArgoCD triển khai template này trước các Constraint
     argocd.argoproj.io/sync-wave: "-1"
 spec:
+  # Định nghĩa CRD cho policy này
   crd:
     spec:
       names:
@@ -13,13 +37,28 @@ spec:
         openAPIV3Schema:
           type: object
           properties:
+            # Tham số "maxReplicas": giới hạn replica tối đa (số nguyên)
+            # Ví dụ: maxReplicas: 10 → tối đa 10 replica
             maxReplicas:
               type: integer
   targets:
+  # Đăng ký policy với Gatekeeper Admission Webhook
   - target: admission.k8s.gatekeeper.sh
     rego: |
       package k8smaxreplicas
 
+      # =====================================================================
+      # RULE CHÍNH: Kiểm tra số replica có vượt giới hạn không
+      #
+      # object.get(): hàm built-in của Rego, lấy giá trị "replicas" từ spec.
+      #   - Nếu trường "replicas" tồn tại → trả về giá trị của nó
+      #   - Nếu không tồn tại → trả về giá trị mặc định là 1
+      #     (Kubernetes mặc định replicas = 1 khi không khai báo)
+      #
+      # So sánh replicas > max: nếu vượt → vi phạm, từ chối request
+      # Thông báo lỗi chi tiết: loại resource, tên, số replica hiện tại
+      # và giới hạn tối đa cho phép
+      # =====================================================================
       violation[{"msg": msg}] {
         replicas := object.get(input.review.object.spec, "replicas", 1)
         max := input.parameters.maxReplicas

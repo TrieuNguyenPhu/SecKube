@@ -1,21 +1,77 @@
+# =============================================================================
+# FILE: disallow-runasuser-root.yaml
+# MỤC ĐÍCH: Constraint cấm container chạy với quyền root (UID 0)
+# MÔ TẢ:
+#   Tạo một instance của ConstraintTemplate "K8sDisallowedRunAsUser" để ngăn chặn
+#   container chạy với UID 0 (root user).
+#
+#   Tại sao chạy root nguy hiểm?
+#     1. CONTAINER ESCAPE: Nếu attacker thoát khỏi container, họ có quyền root
+#        trên node host → chiếm toàn bộ cluster
+#     2. TRUY CẬP TÀI NGUYÊN: Root trong container có thể đọc/ghi file hệ thống
+#        nếu volume mount không được cấu hình cẩn thận
+#     3. KERNEL EXPLOITS: Nhiều lỗ hổng kernel chỉ khai thác được với quyền root
+#     4. NGUYÊN TẮC LEAST PRIVILEGE: Container chỉ nên có quyền tối thiểu cần thiết
+#   → Best practice: Dùng USER directive trong Dockerfile, set runAsNonRoot: true
+#     hoặc runAsUser với UID > 0 (thường dùng UID 1000+)
+#
+# THỨ TỰ TRIỂN KHAI (Sync-Wave):
+#   - ConstraintTemplate "K8sDisallowedRunAsUser" (wave "-1"): Tạo CRD + Rego policy
+#   - Constraint này (wave "0"): Tạo instance với tham số users = [0] (cấm UID 0)
+#   - ArgoCD sync-wave đảm bảo Template tồn tại trước khi Constraint được tạo
+#
+# KIẾN TRÚC:
+#   Thuộc hệ thống OPA Gatekeeper admission controller.
+#   Đây là một trong những policy bảo mật quan trọng nhất, kết hợp với:
+#   - disallow-hostnetwork: Ngăn truy cập network host
+#   - require-resource-limits: Ngăn DoS qua tài nguyên
+#   → Tạo lớp phòng thủ đa tầng (defense in depth) cho cluster
+# =============================================================================
+
+# API version của Gatekeeper Constraint framework
 apiVersion: constraints.gatekeeper.sh/v1beta1
+
+# Kind phải khớp với tên ConstraintTemplate "K8sDisallowedRunAsUser"
 kind: K8sDisallowedRunAsUser
 metadata:
   name: disallow-runasuser-root
   annotations:
+    # Sync-wave "0": Triển khai SAU ConstraintTemplate (wave "-1")
+    # Đảm bảo CRD "K8sDisallowedRunAsUser" đã được đăng ký trong API server
     argocd.argoproj.io/sync-wave: "0"
 spec:
+  # enforcementAction: deny → Từ chối ngay container nếu securityContext.runAsUser = 0
+  # Container không thể khởi chạy cho đến khi cấu hình UID khác 0
   enforcementAction: deny
   match:
+    # Danh sách namespace hệ thống được LOẠI TRỪ khỏi policy
+    # Lý do: Nhiều thành phần hạ tầng CẦN chạy với quyền root
+    #   - argocd: Một số process ArgoCD cần root để quản lý cluster
+    #   - argo-rollouts: Controller cần quyền đặc biệt
+    #   - gatekeeper-system: Gatekeeper webhook server, tránh tự khóa chính mình
+    #   - kube-node-lease: Namespace hệ thống cho node lease management
+    #   - kube-public: Namespace công khai, hiếm khi chạy workload
+    #   - kube-system: Core components (etcd, kube-apiserver, v.v.) BẮT BUỘC chạy root
+    #   - monitoring: Một số exporter (node-exporter) cần root để truy cập metrics hệ thống
     excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
+    # Áp dụng cho tất cả loại workload có thể chạy container
     kinds:
+    # Core API - Pod trực tiếp
     - apiGroups: [""]
       kinds: ["Pod"]
+    # API group "apps" - workload controllers
     - apiGroups: ["apps"]
       kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    # API group "batch" - batch workloads
     - apiGroups: ["batch"]
       kinds: ["Job", "CronJob"]
+    # API group "argoproj.io" - Argo Rollouts
     - apiGroups: ["argoproj.io"]
       kinds: ["Rollout"]
+  # Tham số truyền vào Rego policy trong ConstraintTemplate
   parameters:
+    # Danh sách UID bị cấm sử dụng làm runAsUser
+    # UID 0 = root user trong Linux → bị cấm
+    # Rego policy sẽ kiểm tra spec.securityContext.runAsUser
+    # và spec.containers[*].securityContext.runAsUser
     users: [0]

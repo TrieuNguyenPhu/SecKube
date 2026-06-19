@@ -1,37 +1,88 @@
-# ArgoCD App: Deploy Argo Rollouts controller + CRDs
+# =============================================================================
+# FILE: k8s-rollout.yaml
+# MÔ TẢ: ArgoCD Application cài đặt Argo Rollouts controller từ Helm chart
+# -----------------------------------------------------------------------------
+# Argo Rollouts cung cấp chiến lược triển khai nâng cao cho Kubernetes:
+#   - Canary Deployment: Triển khai dần dần (10% → 30% → 50% → 100%)
+#   - Blue-Green Deployment: Chuyển đổi hoàn toàn giữa version cũ và mới
+#   - Tích hợp AnalysisTemplate để tự động rollback nếu metrics xấu
+#
+# Argo Rollouts thay thế Deployment bằng CRD "Rollout" - cho phép kiểm soát
+# chi tiết quá trình triển khai với traffic shifting và automated analysis.
+#
+# SYNC-WAVE: 0 (Monitoring và template)
+#   - Wave -2: Cài đặt hạ tầng
+#   - Wave -1: Tạo namespace và cấu hình
+#   → Wave  0: Cài đặt Argo Rollouts controller ← FILE NÀY
+#   - Wave  1: Triển khai AnalysisTemplate (app-analysis)
+#   - Wave  2: Triển khai API Rollout (app-api)
+#
+# Phải ở wave 0 (trước wave 1, 2) vì:
+#   1. app-analysis (wave 1) cần CRD AnalysisTemplate từ Argo Rollouts
+#   2. app-api (wave 2) dùng CRD Rollout thay vì Deployment
+#
+# IGNORE DIFFERENCES:
+#   Argo Rollouts controller và Kubernetes tự động thay đổi một số field.
+#   Cần ignore để tránh ArgoCD báo OutOfSync liên tục.
+#
+# PHỤ THUỘC: Không phụ thuộc app nào khác
+# ĐƯỢC PHỤ THUỘC BỞI:
+#   - app-analysis (wave 1) - dùng CRD AnalysisTemplate
+#   - app-api (wave 2) - dùng CRD Rollout
+# =============================================================================
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: argo-rollouts
   namespace: argocd
   annotations:
+    # sync-wave: 0 → cài đặt cùng lúc với prometheus và gatekeeper-templates
     argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
+    # Helm chart chính thức của Argo Rollouts
     repoURL: https://argoproj.github.io/argo-helm
     chart: argo-rollouts
     targetRevision: 2.37.7
   destination:
     server: https://kubernetes.default.svc
+    # Argo Rollouts controller chạy trong namespace riêng
     namespace: argo-rollouts
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
+    # CreateNamespace=true: Tự động tạo namespace "argo-rollouts"
     - CreateNamespace=true
+    # ServerSideApply=true: Cần thiết cho CRD lớn (Rollout, AnalysisTemplate, v.v.)
     - ServerSideApply=true
+
+  # -----------------------------------------------------------------------
+  # ignoreDifferences: Bỏ qua các thay đổi tự động trên cluster
+  # -----------------------------------------------------------------------
   ignoreDifferences:
+  # [1] Deployment replicas: HPA (Horizontal Pod Autoscaler) có thể tự động
+  # thay đổi số replicas. Nếu không ignore, ArgoCD sẽ revert về giá trị
+  # trong Helm chart, gây xung đột với HPA
   - group: apps
     kind: Deployment
     jsonPointers:
     - /spec/replicas
+
+  # [2] Service: Kubernetes tự động gán clusterIP và clusterIPs khi tạo Service.
+  # Giá trị này khác nhau mỗi lần tạo, không nên track trong Git
   - group: ""
     kind: Service
     jsonPointers:
     - /spec/clusterIP
     - /spec/clusterIPs
+
+  # [3] CRD preserveUnknownFields: Kubernetes tự động set field này.
+  # Từ apiextensions/v1, preserveUnknownFields mặc định là false và
+  # có thể bị Kubernetes tự động thêm/xóa
   - group: apiextensions.k8s.io
     kind: CustomResourceDefinition
     jsonPointers:

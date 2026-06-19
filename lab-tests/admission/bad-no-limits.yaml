@@ -1,3 +1,21 @@
+# ==============================================================================
+# File: bad-no-limits.yaml
+# Mục đích: Kiểm thử chính sách Gatekeeper "require-resource-limits"
+# Kết quả mong đợi: BỊ TỪ CHỐI (REJECTED) bởi Admission Controller
+# Constraint vi phạm: require-resource-limits (ConstraintTemplate: K8sRequireResourceLimits)
+#
+# Giải thích:
+#   Pod này không khai báo resource limits (cpu, memory) cho container.
+#   Đây là rủi ro vận hành nghiêm trọng vì:
+#   - Container có thể tiêu thụ toàn bộ CPU/RAM của node (resource exhaustion)
+#   - Ảnh hưởng đến các Pod khác đang chạy trên cùng node (noisy neighbor)
+#   - Kubernetes scheduler không thể tối ưu việc phân bổ Pod lên các node
+#   - Có thể dẫn đến tình trạng OOM (Out Of Memory) trên toàn node
+#
+# Cách kiểm thử:
+#   kubectl apply -f bad-no-limits.yaml
+#   → Gatekeeper sẽ chặn và trả về lỗi vi phạm chính sách
+# ==============================================================================
 apiVersion: v1
 kind: Pod
 metadata:
@@ -5,9 +23,19 @@ metadata:
   namespace: demo
 spec:
   securityContext:
+    # Cấu hình bảo mật tuân thủ: chạy non-root với UID/GID > 10000
     runAsNonRoot: true
     runAsUser: 10001
     runAsGroup: 10001
   containers:
   - name: nginx
+    # Image đã ghim phiên bản cụ thể → tuân thủ chính sách tag
     image: nginx:1.27.3
+    # VI PHẠM: Thiếu hoàn toàn phần "resources.limits"
+    # Gatekeeper constraint "require-resource-limits" yêu cầu mọi container
+    # phải khai báo ít nhất limits cho cpu và memory
+    # Ví dụ cấu hình đúng:
+    #   resources:
+    #     limits:
+    #       cpu: 100m
+    #       memory: 64Mi

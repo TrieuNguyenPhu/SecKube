@@ -1,18 +1,59 @@
-# ServiceMonitor: Prometheus scrape metrics từ API pods
+# =============================================================================
+# FILE: servicemonitor.yaml
+# MÔ TẢ: Prometheus ServiceMonitor — cấu hình tự động thu thập (scrape)
+#         metrics từ Flask API pods.
+#
+# VAI TRÒ TRONG KIẾN TRÚC:
+#   - ServiceMonitor là CRD (Custom Resource) của Prometheus Operator
+#   - Cho phép Prometheus tự động phát hiện và scrape metrics từ API pods
+#     mà không cần chỉnh sửa cấu hình Prometheus thủ công
+#   - Metrics thu thập được sử dụng bởi:
+#       + AnalysisTemplate (app-analysis/) — đánh giá canary health
+#       + PrometheusRule (app-alert/) — cảnh báo SLO violation
+#       + Grafana dashboards — giám sát trực quan
+#   - Flask API expose metrics tại endpoint /metrics nhờ thư viện
+#     prometheus-flask-instrumentator (tự động đo request count, latency, v.v.)
+#
+# THỨ TỰ TRIỂN KHAI:
+#   - Wave 0: Namespace + Rollout (tạo pods)
+#   - Wave 1: Service (expose pods)
+#   - Wave 2: ServiceMonitor (file này) — bật thu thập metrics
+#
+# LÝ DO SYNC-WAVE 2:
+#   ServiceMonitor cần Service đã tồn tại (wave 1) vì nó dùng selector
+#   để tìm Service. Nếu tạo trước, Prometheus sẽ không tìm thấy endpoints.
+# =============================================================================
+
+# ServiceMonitor là CRD thuộc nhóm monitoring.coreos.com
+# Được cài đặt cùng kube-prometheus-stack Helm chart
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: api
+  # Phải cùng namespace "demo" với Service mà nó giám sát
   namespace: demo
   labels:
+    # Label "app: api" — giúp tổ chức và truy vấn tài nguyên
     app: api
   annotations:
+    # Sync-wave "2": Deploy sau Service (wave 1)
+    # Đảm bảo Service đã có endpoints trước khi Prometheus bắt đầu scrape
     argocd.argoproj.io/sync-wave: "2"
 spec:
+  # Selector tìm Service có label "app: api" trong cùng namespace
+  # Phải khớp với labels trong Service metadata (service.yaml)
   selector:
     matchLabels:
       app: api
+  # Cấu hình endpoint scraping
   endpoints:
+  # - port "http": Tên port trong Service (service.yaml → ports[].name)
+  #   ServiceMonitor dùng tên port thay vì số port để linh hoạt hơn
+  # - path "/metrics": Endpoint mà Flask API expose Prometheus metrics
+  #   (được tạo tự động bởi prometheus-flask-instrumentator)
+  # - interval "15s": Prometheus scrape metrics mỗi 15 giây
+  #   Đủ chi tiết để phát hiện anomaly nhanh mà không gây quá tải
+  #   AnalysisTemplate dùng rate() trên dữ liệu này để tính success rate
   - port: http
     path: /metrics
     interval: 15s

@@ -1,11 +1,33 @@
+# ==============================================================================
+# File: bad-too-many-replicas.yaml
+# Mục đích: Kiểm thử chính sách Gatekeeper "custom-max-replicas"
+# Kết quả mong đợi: BỊ TỪ CHỐI (REJECTED) bởi Admission Controller
+# Constraint vi phạm: custom-max-replicas (ConstraintTemplate: K8sCustomMaxReplicas)
+#
+# Giải thích:
+#   Deployment này khai báo replicas: 6, vượt quá giới hạn tối đa cho phép (5).
+#   Chính sách giới hạn số replicas nhằm:
+#   - Ngăn việc tiêu thụ tài nguyên cluster quá mức (resource exhaustion)
+#   - Đảm bảo công bằng tài nguyên giữa các team/namespace
+#   - Tránh tình trạng quá tải node khi scale không kiểm soát
+#   - Buộc team phải xin phê duyệt (approval) khi cần scale lớn hơn
+#
+# Cách kiểm thử:
+#   kubectl apply -f bad-too-many-replicas.yaml
+#   → Gatekeeper sẽ chặn và trả về lỗi vi phạm chính sách
+# ==============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bad-too-many-replicas
   namespace: demo
 spec:
+  # VI PHẠM: replicas: 6 vượt quá giới hạn tối đa cho phép (maxReplicas = 5)
+  # Gatekeeper constraint "custom-max-replicas" sẽ so sánh giá trị này với ngưỡng
+  # và chặn Deployment nếu vượt quá
   replicas: 6
   selector:
+    # matchLabels phải khớp với labels trong template.metadata.labels
     matchLabels:
       app: bad-too-many-replicas
   template:
@@ -14,13 +36,16 @@ spec:
         app: bad-too-many-replicas
     spec:
       securityContext:
+        # Cấu hình bảo mật tuân thủ: chạy non-root với UID/GID > 10000
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
       containers:
       - name: nginx
+        # Image đã ghim phiên bản cụ thể → tuân thủ chính sách tag
         image: nginx:1.27.3
         resources:
+          # Resource limits đã được đặt đúng → tuân thủ chính sách resource
           limits:
             cpu: 100m
             memory: 64Mi

@@ -1,10 +1,36 @@
+# =============================================================================
+# File: k8sdisallowedtags-template.yaml
+# Mô tả: ConstraintTemplate của OPA Gatekeeper để CẤM sử dụng các image tag
+#         không an toàn (ví dụ: "latest") trong container.
+#
+# Tại sao tag "latest" nguy hiểm trong production?
+#   - "latest" là tag mutable (thay đổi được): cùng tag nhưng image khác nhau
+#     mỗi khi có bản build mới → không biết đang chạy phiên bản nào
+#   - Không thể rollback chính xác: nếu xảy ra lỗi, không biết quay về
+#     phiên bản nào vì "latest" đã trỏ tới image mới
+#   - Vi phạm nguyên tắc "reproducible deployments": cùng manifest nhưng
+#     kết quả triển khai khác nhau theo thời gian
+#   - Rủi ro supply chain: image "latest" có thể bị thay thế bởi image
+#     chứa mã độc mà không ai phát hiện
+#
+# Best practice: Luôn sử dụng tag cụ thể (ví dụ: v1.2.3) hoặc SHA digest
+#   (ví dụ: nginx@sha256:abc123...) để đảm bảo tính nhất quán.
+#
+# Tham số đầu vào (parameters):
+#   tags: danh sách các tag bị cấm, ví dụ ["latest"]
+#
+# Thứ tự triển khai:
+#   sync-wave "-1" → Template được tạo TRƯỚC các Constraint sử dụng nó
+# =============================================================================
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
 metadata:
   name: k8sdisallowedtags
   annotations:
+    # sync-wave "-1": ArgoCD triển khai template này trước các Constraint
     argocd.argoproj.io/sync-wave: "-1"
 spec:
+  # Định nghĩa CRD cho policy này
   crd:
     spec:
       names:
@@ -13,15 +39,25 @@ spec:
         openAPIV3Schema:
           type: object
           properties:
+            # Tham số "tags": danh sách các tag bị cấm (chuỗi ký tự)
+            # Ví dụ: tags: ["latest"] → cấm dùng image:latest
+            # Ví dụ: tags: ["latest", "dev", "test"] → cấm nhiều tag
             tags:
               type: array
               items:
                 type: string
   targets:
+  # Đăng ký policy với Gatekeeper Admission Webhook
   - target: admission.k8s.gatekeeper.sh
     rego: |
       package k8sdisallowedtags
 
+      # =====================================================================
+      # RULE CHÍNH: Kiểm tra vi phạm image tag
+      # Duyệt qua tất cả container, kiểm tra image name có kết thúc bằng
+      # tag bị cấm không (ví dụ: "nginx:latest" kết thúc bằng ":latest")
+      # endswith() đảm bảo chỉ khớp phần tag, không khớp tên image
+      # =====================================================================
       violation[{"msg": msg}] {
         container := input_containers[_]
         disallowed := input.parameters.tags[_]
@@ -29,26 +65,38 @@ spec:
         msg := sprintf("container <%s> uses disallowed image tag <%s>: %s", [container.name, disallowed, container.image])
       }
 
+      # =====================================================================
+      # HELPER RULES: Thu thập tất cả container từ mọi loại resource
+      # Mỗi rule là một "OR" condition trong Rego - chỉ cần 1 rule đúng
+      # là container được thêm vào tập hợp input_containers
+      # =====================================================================
+
+      # Pod trực tiếp - containers chính
       input_containers[c] {
         c := input.review.object.spec.containers[_]
       }
 
+      # Pod trực tiếp - initContainers (container khởi tạo, chạy trước main)
       input_containers[c] {
         c := input.review.object.spec.initContainers[_]
       }
 
+      # Deployment/StatefulSet/DaemonSet - containers chính
       input_containers[c] {
         c := input.review.object.spec.template.spec.containers[_]
       }
 
+      # Deployment/StatefulSet/DaemonSet - initContainers
       input_containers[c] {
         c := input.review.object.spec.template.spec.initContainers[_]
       }
 
+      # CronJob/Job - containers chính
       input_containers[c] {
         c := input.review.object.spec.jobTemplate.spec.template.spec.containers[_]
       }
 
+      # CronJob/Job - initContainers
       input_containers[c] {
         c := input.review.object.spec.jobTemplate.spec.template.spec.initContainers[_]
       }

@@ -1,13 +1,47 @@
+# =============================================================================
+# File: policies/cluster-image-policy.yaml
+# Mô tả: ClusterImagePolicy - yêu cầu xác minh chữ ký số (Cosign) cho
+#         container image trước khi triển khai trên cluster.
+#
+# Mục đích:
+#   - Bảo vệ supply chain: chỉ cho phép chạy các image đã được ký số
+#     bằng Cosign (công cụ của dự án Sigstore).
+#   - Ngăn chặn việc triển khai image giả mạo, bị sửa đổi, hoặc không
+#     được phê duyệt bởi CI/CD pipeline.
+#
+# Luồng hoạt động:
+#   1. CI/CD pipeline build image → push lên GHCR
+#   2. CI/CD ký image bằng Cosign với private key
+#   3. Khi deploy, policy controller kiểm tra chữ ký bằng public key dưới đây
+#   4. Nếu image KHÔNG có chữ ký hợp lệ → từ chối triển khai (admission denied)
+#
+# Phạm vi: Toàn cluster (ClusterImagePolicy áp dụng cho mọi namespace)
+# Yêu cầu: Sigstore Policy Controller phải được cài đặt trên cluster
+# =============================================================================
+
 apiVersion: policy.sigstore.dev/v1beta1
 kind: ClusterImagePolicy
 metadata:
+  # Tên policy mô tả rõ ràng: yêu cầu chữ ký cho image w10-api
   name: require-w10-api-signature
 spec:
+  # --- Danh sách image pattern cần xác minh chữ ký ---
   images:
+    # Glob pattern khớp với tất cả image w10-api từ GHCR
+    # "**" khớp với mọi tag và SHA digest (ví dụ: :latest, :v1.0, @sha256:...)
+    # Chỉ image khớp pattern này mới bị kiểm tra, các image khác không bị ảnh hưởng
   - glob: ghcr.io/trieunguyenphu/w10-api**
+
+  # --- Nguồn xác thực chữ ký ---
   authorities:
+    # Sử dụng public key để xác minh chữ ký Cosign
+    # Private key tương ứng được giữ bí mật trong CI/CD pipeline
   - key:
+      # Thuật toán hash dùng để tạo và xác minh chữ ký
       hashAlgorithm: sha256
+      # Public key dạng PEM (ECDSA P-256)
+      # Key này tương ứng với private key dùng để ký image trong CI/CD
+      # Nếu private key bị thay đổi, cần cập nhật public key ở đây
       data: |
         -----BEGIN PUBLIC KEY-----
         MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELbFHPEadB1MliIed5KDK1vqwVJSG
