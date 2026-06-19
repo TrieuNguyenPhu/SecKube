@@ -5,8 +5,10 @@ metadata:
 spec:
   images:
   - glob: ghcr.io/trieunguyenphu/w10-api**
+  mode: enforce
   authorities:
-  - key:
+  - name: authority-0
+    key:
       hashAlgorithm: sha256
       data: |
         -----BEGIN PUBLIC KEY-----
