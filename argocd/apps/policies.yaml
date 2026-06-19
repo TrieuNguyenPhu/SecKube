@@ -1,53 +1,22 @@
-# =============================================================================
-# FILE: policies.yaml
-# MÔ TẢ: ArgoCD Application triển khai ClusterImagePolicy cho Sigstore Cosign
-# -----------------------------------------------------------------------------
-# ClusterImagePolicy định nghĩa policy xác minh chữ ký số container image.
-# Chỉ định image pattern nào cần verify và dùng public key/keyless nào để verify.
-#
-# Ví dụ: Yêu cầu tất cả image từ registry "ghcr.io/myorg/*" phải được ký
-# bằng Cosign với public key cụ thể → nếu không có chữ ký hợp lệ, Pod bị từ chối.
-#
-# SYNC-WAVE: -1 (Cấu hình chung)
-#   - Wave -2: Cài đặt Policy Controller (cung cấp CRD ClusterImagePolicy)
-#   → Wave -1: Triển khai ClusterImagePolicy ← FILE NÀY
-#   - Wave  0: Template, monitoring
-#   - Wave  1: Constraints, workloads
-#   - Wave  2: Ứng dụng API (image bị verify bởi policy này)
-#
-# Phải ở wave -1 (sau wave -2) vì cần CRD ClusterImagePolicy từ Policy Controller.
-# Phải triển khai trước app API (wave 2) để policy đã sẵn sàng khi image được verify.
-#
-# PHỤ THUỘC: policy-controller (wave -2) - cung cấp CRD ClusterImagePolicy
-# ĐƯỢC PHỤ THUỘC BỞI: app-api (wave 2) - image bị kiểm tra chữ ký bởi policy
-# =============================================================================
-
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: policies
   namespace: argocd
   annotations:
-    # sync-wave: -1 → triển khai sau Policy Controller (wave -2)
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   project: default
   source:
-    # Lấy manifest ClusterImagePolicy từ thư mục policies/ trong Git
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: policies
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
-    # ClusterImagePolicy là cluster-scoped, nhưng được đặt trong namespace
-    # cosign-system để nhóm chung với Policy Controller
     namespace: cosign-system
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-    # ServerSideApply=true: Xử lý tốt hơn khi policy có schema phức tạp
-    # KHÔNG có CreateNamespace vì namespace "cosign-system" đã được tạo
-    # bởi policy-controller (wave -2)
     - ServerSideApply=true

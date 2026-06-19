@@ -1,184 +1,71 @@
-# =============================================================================
-# FILE: rollout.yaml
-# MÔ TẢ: Định nghĩa Argo Rollout cho Flask API với chiến lược Canary
-#         (Progressive Delivery).
-#
-# VAI TRÒ TRONG KIẾN TRÚC:
-#   - Thay thế Deployment chuẩn của K8s bằng Argo Rollout để hỗ trợ
-#     triển khai canary tự động (progressive delivery).
-#   - Kết hợp với AnalysisTemplate "success-rate" (app-analysis/) để tự động
-#     đánh giá sức khỏe canary dựa trên metrics từ Prometheus.
-#   - Tuân thủ các ràng buộc bảo mật từ OPA Gatekeeper:
-#       + Phải chạy non-root (securityContext)
-#       + Phải khai báo resource limits (resources.limits)
-#   - Sử dụng Secret được đồng bộ bởi External Secrets Operator (ESO)
-#     từ external secret store (ví dụ: AWS SSM, Vault).
-#
-# THỨ TỰ TRIỂN KHAI (ArgoCD Sync Waves):
-#   - Wave 0: Namespace (app-common/demo-namespace.yaml)
-#   - Wave 0: Rollout (file này) — tạo pods
-#   - Wave 1: Service (service.yaml) — expose pods
-#   - Wave 2: ServiceMonitor (servicemonitor.yaml) — bật thu thập metrics
-# =============================================================================
-
-# Sử dụng API của Argo Rollouts thay vì apps/v1 Deployment
+# Rollout: Progressive delivery vá»›i canary strategy
+# Sync wave 0: Deploy trÆ°á»›c Ä‘á»ƒ táº¡o pods
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: api
-  # Namespace "demo" — được tạo bởi app-common/demo-namespace.yaml (wave 0)
   namespace: demo
   labels:
-    # Label "app: api" dùng để selector trong Service và ServiceMonitor
     app: api
   annotations:
-    # Sync-wave "0": ArgoCD triển khai Rollout cùng lúc với Namespace
-    # Đảm bảo pods được tạo trước khi Service (wave 1) cố gắng expose chúng
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  # Số lượng replicas (stable + canary cộng lại)
-  # 4 replicas cho phép phân chia canary linh hoạt: 10%, 50%, 100%
   replicas: 4
-
-  # Selector phải khớp với labels trong template.metadata.labels
-  # Dùng để Rollout Controller tìm và quản lý đúng các pods
   selector:
     matchLabels:
       app: api
-
-  # ========================= POD TEMPLATE =========================
   template:
     metadata:
       labels:
-        # Label này phải khớp với selector ở trên
-        # Cũng được Service và ServiceMonitor sử dụng để tìm pods
         app: api
     spec:
-      # ----- BẢO MẬT POD (Pod Security Context) -----
-      # Bắt buộc bởi Gatekeeper constraint "K8sPSPRunAsNonRoot"
-      # Đảm bảo container không chạy với quyền root (UID 0)
       securityContext:
-        # runAsNonRoot: Kubernetes sẽ từ chối pod nếu image chạy với UID 0
         runAsNonRoot: true
-        # Chạy với UID/GID 10001 — user không có đặc quyền
-        # Giá trị > 10000 tránh xung đột với system users
         runAsUser: 10001
         runAsGroup: 10001
-
       containers:
       - name: api
-        # Image Flask API từ GitHub Container Registry (GHCR)
-        # Image này đã được ký bởi Cosign và quét bởi Trivy trong CI pipeline
         image: ghcr.io/trieunguyenphu/w10-api:0.0.6
-        # IfNotPresent: Chỉ pull image nếu chưa có trên node
-        # Giảm thời gian khởi động và băng thông mạng
         imagePullPolicy: IfNotPresent
-
         ports:
-        # Flask API lắng nghe trên port 8080 (non-privileged port, > 1024)
-        # Port < 1024 yêu cầu quyền root — không phù hợp với securityContext
         - containerPort: 8080
           protocol: TCP
-
-        # ----- BIẾN MÔI TRƯỜNG -----
         env:
-        # VERSION: Hiển thị phiên bản hiện tại trong response headers/logs
-        # Hữu ích để phân biệt traffic canary vs stable khi debug
         - name: VERSION
           value: "v0.0.6"
-        # ERROR_RATE: Tỷ lệ lỗi giả lập (0 = không lỗi, 0.5 = 50% lỗi)
-        # Dùng để demo/test: tăng giá trị này sẽ khiến AnalysisTemplate
-        # phát hiện success rate thấp → tự động rollback canary
         - name: ERROR_RATE
           value: "0"
-
-        # ----- VOLUME MOUNTS (Gắn kết Secret) -----
-        # Mount Secret "db-secret" vào filesystem thay vì dùng env vars
-        # Ưu điểm so với env vars:
-        #   - Tự động cập nhật khi Secret thay đổi (không cần restart pod)
-        #   - Không lộ trong 'kubectl describe pod' hay process listing
         volumeMounts:
         - name: db-secret
-          # Đường dẫn mount — ứng dụng Flask đọc credentials từ thư mục này
           mountPath: /etc/secrets/db
-          # readOnly: Ngăn container ghi đè/sửa đổi secret files
           readOnly: true
-
-        # ----- HEALTH CHECKS (Kiểm tra sức khỏe) -----
-        # Liveness Probe: Kiểm tra container còn sống không
-        # Nếu thất bại → kubelet tự động restart container
-        # Endpoint /healthz được Flask API expose riêng cho mục đích health check
         livenessProbe:
           httpGet:
             path: /healthz
             port: 8080
-          # Chờ 5 giây sau khi container start trước khi bắt đầu kiểm tra
-          # Cho Flask đủ thời gian khởi tạo (load modules, connect DB)
           initialDelaySeconds: 5
-
-        # Readiness Probe: Kiểm tra container sẵn sàng nhận traffic chưa
-        # Nếu thất bại → pod bị loại khỏi Service endpoints (không nhận request)
-        # Quan trọng trong canary: pod chưa ready sẽ không nhận traffic canary
         readinessProbe:
           httpGet:
             path: /healthz
             port: 8080
-          # Chờ 3 giây — ngắn hơn liveness vì readiness cần phản hồi nhanh
           initialDelaySeconds: 3
-
-        # ----- RESOURCE LIMITS (Giới hạn tài nguyên) -----
-        # Bắt buộc bởi Gatekeeper constraint "K8sRequiredResources"
-        # Nếu không khai báo limits → Gatekeeper sẽ từ chối tạo pod
-        # Giúp ngăn một pod chiếm hết tài nguyên của node (noisy neighbor)
         resources:
           limits:
-            # 200 millicores CPU (= 0.2 core) — đủ cho Flask API nhẹ
             cpu: 200m
-            # 128 MiB RAM — Flask + Prometheus client không cần nhiều hơn
             memory: 128Mi
-
-      # ----- VOLUMES (Nguồn dữ liệu) -----
-      # Khai báo Secret "db-secret" như một volume
-      # Secret này được tạo bởi External Secrets Operator (ESO)
-      # ESO đồng bộ credentials từ external store (AWS SSM / Vault)
-      # → Không cần lưu credentials trong Git repo
       volumes:
       - name: db-secret
         secret:
-          # Tên Secret trong namespace "demo" — phải khớp với ExternalSecret resource
           secretName: db-secret
-
-  # ========================= CHIẾN LƯỢC CANARY =========================
-  # Argo Rollouts Canary Strategy: triển khai dần dần phiên bản mới
-  # Thay vì chuyển 100% traffic ngay lập tức (như rolling update),
-  # canary tăng dần % traffic để phát hiện lỗi sớm với ít ảnh hưởng
   strategy:
     canary:
-      # ----- PHÂN TÍCH TỰ ĐỘNG (Automated Analysis) -----
-      # Tích hợp với AnalysisTemplate "success-rate" (app-analysis/)
-      # AnalysisTemplate sẽ query Prometheus để kiểm tra tỷ lệ thành công
       analysis:
         templates:
-        # Tham chiếu đến AnalysisTemplate "success-rate" trong cùng namespace
         - templateName: success-rate
-        # startingStep: 1 → Bắt đầu phân tích từ bước thứ 2 (index 1)
-        # Bước đầu (setWeight: 10) không phân tích vì chưa đủ traffic để đo
         startingStep: 1
-
-      # ----- CÁC BƯỚC CANARY (Canary Steps) -----
-      # Quy trình triển khai theo từng giai đoạn:
       steps:
-      # Bước 1: Chuyển 10% traffic sang canary (phiên bản mới)
-      # Mục đích: "thăm dò" với lượng traffic nhỏ để phát hiện lỗi nghiêm trọng
       - setWeight: 10
-      # Bước 2: Tạm dừng 2 phút — AnalysisTemplate chạy kiểm tra success rate
-      # Nếu success rate < 90% → tự động rollback về phiên bản cũ
       - pause: {duration: 2m}
-      # Bước 3: Tăng lên 50% traffic — nếu bước trước đạt yêu cầu
-      # "Blast radius" lớn hơn nhưng vẫn giữ 50% traffic ở phiên bản stable
       - setWeight: 50
-      # Bước 4: Tạm dừng thêm 2 phút — tiếp tục phân tích với traffic cao hơn
       - pause: {duration: 2m}
-      # Bước 5: Chuyển 100% traffic sang phiên bản mới
-      # Phiên bản mới trở thành "stable", phiên bản cũ bị scale down
       - setWeight: 100

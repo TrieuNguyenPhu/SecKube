@@ -1,21 +1,3 @@
-# ==============================================================================
-# File: bad-latest-tag.yaml
-# Mục đích: Kiểm thử chính sách Gatekeeper "disallow-latest-tag"
-# Kết quả mong đợi: BỊ TỪ CHỐI (REJECTED) bởi Admission Controller
-# Constraint vi phạm: disallow-latest-tag (ConstraintTemplate: K8sDisallowLatestTag)
-#
-# Giải thích:
-#   Pod này sử dụng image tag "latest" thay vì ghim (pin) phiên bản cụ thể.
-#   Đây là bad practice vì:
-#   - Tag "latest" có thể thay đổi bất kỳ lúc nào khi image mới được push
-#   - Không thể xác định chính xác phiên bản đang chạy → khó debug, khó audit
-#   - Triển khai không có tính tái lặp (non-reproducible deployments)
-#   - Có thể vô tình triển khai phiên bản chưa được kiểm tra
-#
-# Cách kiểm thử:
-#   kubectl apply -f bad-latest-tag.yaml
-#   → Gatekeeper sẽ chặn và trả về lỗi vi phạm chính sách
-# ==============================================================================
 apiVersion: v1
 kind: Pod
 metadata:
@@ -23,17 +5,13 @@ metadata:
   namespace: demo
 spec:
   securityContext:
-    # Cấu hình bảo mật tuân thủ: chạy non-root với UID/GID > 10000
     runAsNonRoot: true
     runAsUser: 10001
     runAsGroup: 10001
   containers:
   - name: nginx
-    # VI PHẠM: Dùng tag "latest" thay vì phiên bản cụ thể (ví dụ: nginx:1.27.3)
-    # Gatekeeper constraint "disallow-latest-tag" sẽ phát hiện và chặn cấu hình này
     image: nginx:latest
     resources:
-      # Resource limits đã được đặt đúng → tuân thủ chính sách require-resource-limits
       limits:
         cpu: 100m
         memory: 64Mi

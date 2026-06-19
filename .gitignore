@@ -1,72 +1,15 @@
-# ==============================================================================
-# File: .gitignore
-# Mục đích: Định nghĩa các file và thư mục KHÔNG được theo dõi (track) bởi Git.
-#
-# Tại sao cần file này:
-#   - Ngăn chặn commit các file nhạy cảm (secrets, private keys) lên repository
-#   - Loại bỏ các file tạm thời của IDE và hệ điều hành
-#   - Giữ repository sạch, chỉ chứa mã nguồn và cấu hình cần thiết
-#
-# CẢNH BÁO BẢO MẬT:
-#   Nếu vô tình commit secret lên Git, việc xóa file sau đó KHÔNG đủ!
-#   Secret vẫn tồn tại trong Git history. Phải dùng git filter-branch hoặc
-#   BFG Repo-Cleaner để xóa hoàn toàn, và phải rotate (thay đổi) secret ngay.
-# ==============================================================================
-
-# ==========================================================
-# Secrets - KHÔNG ĐƯỢC COMMIT (Bảo mật quan trọng nhất)
-# ==========================================================
-
-# File cấu hình email secret cho Alertmanager - chứa thông tin đăng nhập
-# SMTP (email/password) dùng để gửi cảnh báo. Nếu lộ → attacker có thể
-# gửi email giả mạo hoặc truy cập hệ thống email.
+# Secrets - DO NOT COMMIT
 k8s-monitoring/email-secret.yaml
-
-# File cấu hình Alertmanager - có thể chứa webhook URLs, email credentials,
-# hoặc API tokens cho các kênh thông báo (Slack, PagerDuty, v.v.).
 k8s-monitoring/alertmanager-config.yaml
-
-# Pattern bắt TẤT CẢ file email-secret.yaml ở bất kỳ thư mục con nào.
-# Dùng glob pattern ** để đảm bảo không có file nào bị bỏ sót dù đặt ở đâu.
 **/email-secret.yaml
-
-# Bắt tất cả file có đuôi .secret.yaml - quy ước đặt tên cho các file
-# chứa Kubernetes Secret manifests trong dự án này.
-# Ví dụ: database.secret.yaml, registry.secret.yaml
 *.secret.yaml
-
-# Private key của Cosign - dùng để ký (sign) container images.
-# Cosign là công cụ của Sigstore để xác thực tính toàn vẹn của container image
-# trong supply chain security. Nếu lộ private key → attacker có thể ký
-# image độc hại và giả mạo là image hợp lệ của dự án.
-# File cosign.pub (public key) ĐƯỢC commit vì cần để verify signatures.
 cosign.key
-
-# Thư mục chứa các file cấu hình local cho lab/thực hành.
-# Mỗi developer có thể có cấu hình riêng, không nên chia sẻ.
 .lab-local/
-
-# Thư mục chứa các công cụ CLI được tải về locally (ví dụ: kubectl, helm,
-# argocd CLI). Không commit vì phụ thuộc vào OS/architecture của từng máy.
 .tools/
 
-# ==========================================================
-# IDE - File cấu hình của trình soạn thảo code
-# ==========================================================
-
-# Thư mục cấu hình của Visual Studio Code (settings, extensions, debug configs).
-# Mỗi developer có cấu hình IDE riêng, không nên ép buộc lên người khác.
+# IDE
 .vscode/
-
-# Thư mục cấu hình của JetBrains IDE (IntelliJ IDEA, PyCharm, v.v.).
-# Tương tự .vscode/, chứa cấu hình cá nhân của developer.
 .idea/
 
-# ==========================================================
-# OS - File tạm thời của hệ điều hành
-# ==========================================================
-
-# File metadata của macOS Finder - tự động tạo trong mỗi thư mục.
-# Chứa thông tin hiển thị (icon position, view settings) - không liên quan
-# đến mã nguồn và gây nhiễu khi review code.
+# OS
 .DS_Store

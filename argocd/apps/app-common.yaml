@@ -1,59 +1,24 @@
-# =============================================================================
-# FILE: app-common.yaml
-# MÔ TẢ: ArgoCD Application triển khai tài nguyên chung (namespace, labels, v.v.)
-# -----------------------------------------------------------------------------
-# Ứng dụng này tạo namespace "demo" và các tài nguyên dùng chung cho toàn bộ
-# hệ thống. Nằm trong mô hình App-of-Apps, được quản lý bởi root Application
-# (argocd/root.yaml).
-#
-# SYNC-WAVE: -1 (Tài nguyên nền tảng)
-#   - Wave -2: Cài đặt Helm chart hạ tầng (gatekeeper, eso, policy-controller)
-#   → Wave -1: Tạo namespace và cấu hình chung ← FILE NÀY
-#   - Wave  0: Template, monitoring
-#   - Wave  1: Constraints, workloads
-#   - Wave  2: Ứng dụng API
-#
-# Namespace "demo" cần được tạo TRƯỚC khi các app ở wave 0, 1, 2 triển khai
-# tài nguyên vào đó (AnalysisTemplate, RBAC, Rollout, v.v.).
-#
-# PHỤ THUỘC: Không phụ thuộc app nào khác
-# ĐƯỢC PHỤ THUỘC BỞI: eso-config, app-analysis, rbac, app-api (wave >= 0)
-# =============================================================================
-
+# ArgoCD App: Deploy common resources (namespace)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: common
-  # Tất cả ArgoCD Application phải nằm trong namespace "argocd"
   namespace: argocd
   annotations:
-    # sync-wave: -1 → triển khai sau hạ tầng (wave -2), trước monitoring (wave 0)
-    # Số âm càng lớn thì triển khai càng sớm
     argocd.argoproj.io/sync-wave: "-1"
 spec:
-  # Project "default" cho phép triển khai tới mọi cluster và namespace
   project: default
   source:
-    # Lấy manifest từ thư mục app-common/ trong Git repo
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: app-common
     targetRevision: main
   destination:
-    # Triển khai vào cluster hiện tại (in-cluster)
     server: https://kubernetes.default.svc
-    # Namespace đích cho các tài nguyên chung
     namespace: demo
   syncPolicy:
     automated:
-      # prune: Tự động xóa tài nguyên khi bị xóa khỏi Git
       prune: true
-      # selfHeal: Tự động khôi phục nếu có ai thay đổi trực tiếp trên cluster
       selfHeal: true
     syncOptions:
-    # CreateNamespace=true: Tự động tạo namespace "demo" nếu chưa tồn tại
-    # Đây là tùy chọn quan trọng vì namespace cần có trước khi tạo tài nguyên
     - CreateNamespace=true
-    # ServerSideApply=true: Dùng Server-Side Apply thay vì Client-Side Apply
-    # Giúp xử lý tốt hơn khi nhiều controller cùng quản lý 1 tài nguyên,
-    # tránh xung đột field ownership
     - ServerSideApply=true

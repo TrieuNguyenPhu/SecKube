@@ -1,72 +1,30 @@
-# =============================================================================
-# FILE: policy-controller.yaml
-# MÔ TẢ: ArgoCD Application cài đặt Sigstore Policy Controller từ Helm chart
-# -----------------------------------------------------------------------------
-# Sigstore Policy Controller là admission controller xác minh chữ ký số (signature)
-# của container image bằng Cosign trước khi cho phép deploy lên cluster.
-# Đảm bảo chỉ những image đã được ký (signed) mới được chạy, ngăn chặn
-# supply chain attack (tấn công chuỗi cung ứng).
-#
-# Quy trình: Image build → Cosign sign → Push registry → Policy Controller verify → Cho phép/Từ chối
-#
-# SYNC-WAVE: -2 (Hạ tầng - triển khai sớm nhất)
-#   → Wave -2: Cài đặt Policy Controller ← FILE NÀY
-#   - Wave -1: Triển khai ClusterImagePolicy (policies.yaml)
-#   - Wave  0: Template, monitoring
-#   - Wave  1: Constraints, workloads
-#   - Wave  2: Ứng dụng API (image bị verify bởi policy)
-#
-# Phải ở wave -2 vì policies (wave -1) cần CRD ClusterImagePolicy từ controller.
-#
-# IGNORE DIFFERENCES:
-#   Policy Controller tự động cập nhật webhook config (thêm namespace selector,
-#   sửa caBundle, v.v.). Nếu không ignore, ArgoCD sẽ thấy OutOfSync liên tục.
-#
-# PHỤ THUỘC: Không phụ thuộc app nào khác
-# ĐƯỢC PHỤ THUỘC BỞI: policies (wave -1) - dùng CRD ClusterImagePolicy
-# =============================================================================
-
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: policy-controller
   namespace: argocd
   annotations:
-    # sync-wave: -2 → cài đặt đầu tiên cùng Gatekeeper và ESO
     argocd.argoproj.io/sync-wave: "-2"
 spec:
   project: default
-
-  # -----------------------------------------------------------------------
-  # ignoreDifferences: Bỏ qua thay đổi webhook do Policy Controller tự quản lý
-  # Controller tự động cập nhật toàn bộ /webhooks (bao gồm rules, namespaceSelector,
-  # caBundle, failurePolicy, v.v.) nên cần ignore cả mảng /webhooks
-  # -----------------------------------------------------------------------
   ignoreDifferences:
-  # MutatingWebhookConfiguration: Controller tự thêm/sửa webhook rules
-  # để inject cosign verification vào admission flow
   - group: admissionregistration.k8s.io
     kind: MutatingWebhookConfiguration
     name: policy.sigstore.dev
     jsonPointers:
     - /webhooks
-  # ValidatingWebhookConfiguration: Controller tự cập nhật webhook
-  # để validate image signature trước khi cho phép tạo Pod
   - group: admissionregistration.k8s.io
     kind: ValidatingWebhookConfiguration
     name: policy.sigstore.dev
     jsonPointers:
     - /webhooks
-
   source:
-    # Helm chart chính thức của Sigstore Policy Controller
     repoURL: https://sigstore.github.io/helm-charts
     chart: policy-controller
     targetRevision: 0.10.6
     helm:
       values: |
         webhook:
-          # Giới hạn tài nguyên cho webhook Pod để tránh chiếm quá nhiều resource
           resources:
             requests:
               cpu: 100m
@@ -74,26 +32,19 @@ spec:
             limits:
               cpu: 1000m
               memory: 512Mi
-          # Timeout 30s cho webhook (mặc định 10s có thể quá ngắn khi verify image)
-          # Nếu timeout, webhook sẽ trả về theo failurePolicy (Fail hoặc Ignore)
           webhookTimeoutSeconds:
             defaulting: 30
             validating: 30
         cosign:
-          # Timeout cho Cosign webhook riêng biệt
-          # Verify chữ ký image có thể mất thời gian nếu cần fetch từ registry
           webhookTimeoutSeconds:
             mutating: 30
             validating: 30
-
   destination:
     server: https://kubernetes.default.svc
-    # Policy Controller chạy trong namespace riêng "cosign-system"
     namespace: cosign-system
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-    # CreateNamespace=true: Tự động tạo namespace "cosign-system"
     - CreateNamespace=true

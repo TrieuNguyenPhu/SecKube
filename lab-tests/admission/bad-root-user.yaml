@@ -1,24 +1,3 @@
-# ==============================================================================
-# File: bad-root-user.yaml
-# Mục đích: Kiểm thử chính sách Gatekeeper "disallow-runasuser-root"
-# Kết quả mong đợi: BỊ TỪ CHỐI (REJECTED) bởi Admission Controller
-# Constraint vi phạm: disallow-runasuser-root (ConstraintTemplate: K8sDisallowRunAsUserRoot)
-#
-# Giải thích:
-#   Pod này chạy với runAsUser: 0, tức là chạy dưới quyền root (UID 0).
-#   Đây là rủi ro bảo mật rất cao vì:
-#   - Nếu container bị tấn công, attacker có quyền root trong container
-#   - Kết hợp với container escape, attacker có thể chiếm quyền điều khiển node
-#   - Root trong container có thể ghi đè file hệ thống qua volume mounts
-#   - Vi phạm nguyên tắc "Principle of Least Privilege" (đặc quyền tối thiểu)
-#
-# Lưu ý: Pod này cũng thiếu runAsNonRoot: true, nghĩa là không có lớp bảo vệ
-#   bổ sung để ngăn chặn việc chạy root ở cấp kernel.
-#
-# Cách kiểm thử:
-#   kubectl apply -f bad-root-user.yaml
-#   → Gatekeeper sẽ chặn và trả về lỗi vi phạm chính sách
-# ==============================================================================
 apiVersion: v1
 kind: Pod
 metadata:
@@ -26,16 +5,11 @@ metadata:
   namespace: demo
 spec:
   securityContext:
-    # VI PHẠM: runAsUser: 0 = chạy dưới quyền root (UID 0)
-    # Gatekeeper constraint "disallow-runasuser-root" sẽ phát hiện UID = 0 và chặn
-    # Giá trị an toàn: runAsUser >= 10000 (ví dụ: 10001)
     runAsUser: 0
   containers:
   - name: nginx
-    # Image đã ghim phiên bản cụ thể → tuân thủ chính sách tag
     image: nginx:1.27.3
     resources:
-      # Resource limits đã được đặt đúng → tuân thủ chính sách resource
       limits:
         cpu: 100m
         memory: 64Mi

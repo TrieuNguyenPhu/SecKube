@@ -1,74 +1,21 @@
-# =============================================================================
-# FILE: disallow-latest-tag.yaml
-# MỤC ĐÍCH: Constraint cấm sử dụng tag "latest" cho container image
-# MÔ TẢ:
-#   Tạo một instance của ConstraintTemplate "K8sDisallowedTags" để ngăn chặn
-#   việc sử dụng tag "latest" trong container image.
-#
-#   Tại sao tag "latest" nguy hiểm?
-#     1. KHÔNG XÁC ĐỊNH PHIÊN BẢN: "latest" trỏ đến image mới nhất tại thời điểm pull,
-#        nên cùng một manifest có thể chạy image khác nhau ở các thời điểm khác nhau
-#     2. KHÓ ROLLBACK: Không biết chính xác phiên bản nào đang chạy để rollback
-#     3. PHÁ VỠ TÍNH NHẤT QUÁN: Các Pod cùng Deployment có thể chạy image khác nhau
-#        nếu được schedule ở thời điểm khác nhau
-#     4. KHÔNG TƯƠNG THÍCH VỚI IMAGE SIGNING: Cosign ký image theo digest cụ thể,
-#        tag "latest" thay đổi liên tục nên không đảm bảo chữ ký hợp lệ
-#   → Best practice: Luôn dùng tag cụ thể (v1.2.3) hoặc digest (sha256:...)
-#
-# THỨ TỰ TRIỂN KHAI (Sync-Wave):
-#   - ConstraintTemplate "K8sDisallowedTags" (wave "-1"): Tạo CRD và Rego policy
-#   - Constraint này (wave "0"): Tạo instance với tham số tags = ["latest"]
-#   - Thứ tự đảm bảo: CRD tồn tại → Constraint được chấp nhận bởi API server
-#
-# KIẾN TRÚC:
-#   Thuộc hệ thống OPA Gatekeeper admission controller.
-#   Kết hợp với Cosign image verification để tạo pipeline bảo mật image toàn diện.
-# =============================================================================
-
-# API version của Gatekeeper Constraint framework
 apiVersion: constraints.gatekeeper.sh/v1beta1
-
-# Kind phải khớp với tên ConstraintTemplate "K8sDisallowedTags"
 kind: K8sDisallowedTags
 metadata:
   name: disallow-latest-tag
   annotations:
-    # Sync-wave "0": Triển khai SAU ConstraintTemplate (wave "-1")
-    # ConstraintTemplate định nghĩa CRD "K8sDisallowedTags" + Rego policy
-    # Constraint này chỉ tạo instance và truyền tham số vào policy
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  # enforcementAction: deny → Từ chối ngay lập tức nếu image dùng tag bị cấm
-  # Container sẽ không được tạo/cập nhật cho đến khi sửa tag
   enforcementAction: deny
   match:
-    # Danh sách namespace hệ thống được LOẠI TRỪ khỏi policy
-    # Các namespace này chứa thành phần hạ tầng có thể dùng image với tag đặc biệt
-    #   - argocd: Image ArgoCD có thể dùng tag quản lý bởi Helm chart
-    #   - argo-rollouts: Controller image do Helm quản lý
-    #   - gatekeeper-system: Image Gatekeeper, tránh tự khóa chính mình
-    #   - kube-node-lease: Namespace hệ thống cho node heartbeat
-    #   - kube-public: Namespace công khai, ít workload
-    #   - kube-system: Core Kubernetes components (CoreDNS, etcd, kube-proxy, v.v.)
-    #   - monitoring: Prometheus/Grafana stack, image thường do Helm chart quản lý
     excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
-    # Áp dụng cho tất cả các loại workload có thể chứa container
     kinds:
-    # Core API - Pod trực tiếp (trường hợp hiếm nhưng cần kiểm soát)
     - apiGroups: [""]
       kinds: ["Pod"]
-    # API group "apps" - các workload controller chính
     - apiGroups: ["apps"]
       kinds: ["Deployment", "StatefulSet", "DaemonSet"]
-    # API group "batch" - Job và CronJob
     - apiGroups: ["batch"]
       kinds: ["Job", "CronJob"]
-    # API group "argoproj.io" - Argo Rollout cho progressive delivery
     - apiGroups: ["argoproj.io"]
       kinds: ["Rollout"]
-  # Tham số truyền vào Rego policy trong ConstraintTemplate
   parameters:
-    # Danh sách các tag bị cấm sử dụng
-    # "latest" là tag duy nhất bị cấm trong cấu hình này
-    # Có thể mở rộng thêm tag khác, ví dụ: ["latest", "dev", "nightly"]
     tags: ["latest"]

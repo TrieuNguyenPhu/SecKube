@@ -1,63 +1,23 @@
-# =============================================================================
-# FILE: app-analysis.yaml
-# MÔ TẢ: ArgoCD Application triển khai AnalysisTemplate cho Canary Deployment
-# -----------------------------------------------------------------------------
-# AnalysisTemplate là CRD của Argo Rollouts, định nghĩa cách đánh giá
-# sức khỏe của version mới trong quá trình canary deployment.
-#
-# Quy trình Canary với Analysis:
-#   1. Rollout chuyển 10% traffic sang version mới
-#   2. AnalysisRun được tạo tự động → query Prometheus metrics
-#   3. Nếu metrics đạt ngưỡng (ví dụ: error rate < 1%) → tiếp tục tăng traffic
-#   4. Nếu metrics KHÔNG đạt → tự động rollback về version cũ
-#
-# AnalysisTemplate thường chứa PromQL queries để kiểm tra:
-#   - Success rate (tỷ lệ request thành công)
-#   - Latency P95/P99
-#   - Error rate
-#
-# SYNC-WAVE: 1 (Áp dụng policy và workloads)
-#   - Wave -2: Cài đặt hạ tầng
-#   - Wave  0: Cài đặt Argo Rollouts (CRD AnalysisTemplate) + Prometheus
-#   → Wave  1: Triển khai AnalysisTemplate ← FILE NÀY
-#   - Wave  2: Ứng dụng API Rollout (tham chiếu AnalysisTemplate này)
-#
-# Phải ở wave 1 vì:
-#   1. Cần CRD AnalysisTemplate từ Argo Rollouts (wave 0)
-#   2. Template cần query Prometheus (wave 0) để lấy metrics
-#   3. Phải có trước khi app-api (wave 2) tạo Rollout tham chiếu template
-#
-# PHỤ THUỘC:
-#   - k8s-rollout (wave 0) - cung cấp CRD AnalysisTemplate
-#   - k8s-prometheus (wave 0) - cung cấp Prometheus endpoint để query
-# ĐƯỢC PHỤ THUỘC BỞI: app-api (wave 2) - Rollout tham chiếu template này
-# =============================================================================
-
+# ArgoCD App: Deploy AnalysisTemplate cho canary analysis
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: analysis
   namespace: argocd
   annotations:
-    # sync-wave: 1 → sau Argo Rollouts + Prometheus (wave 0), trước app API (wave 2)
     argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
-    # Lấy manifest AnalysisTemplate từ thư mục app-analysis/ trong Git
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: app-analysis
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
-    # Triển khai vào namespace "demo" - cùng namespace với Rollout của app API
-    # AnalysisTemplate phải ở cùng namespace với Rollout tham chiếu nó
     namespace: demo
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-    # ServerSideApply=true: Xử lý đúng field ownership cho AnalysisTemplate
-    # KHÔNG có CreateNamespace vì "demo" đã được tạo bởi app-common (wave -1)
     - ServerSideApply=true

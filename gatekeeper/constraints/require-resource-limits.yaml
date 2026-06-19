@@ -1,82 +1,21 @@
-# =============================================================================
-# FILE: require-resource-limits.yaml
-# MỤC ĐÍCH: Constraint yêu cầu mọi container phải khai báo resource limits (CPU & Memory)
-# MÔ TẢ:
-#   Tạo một instance của ConstraintTemplate "K8sRequiredResourceLimits" để bắt buộc
-#   tất cả container phải định nghĩa giới hạn CPU và Memory trong spec.
-#
-#   Tại sao resource limits quan trọng?
-#     1. NGĂN CHẶN DoS: Container không có limits có thể tiêu thụ toàn bộ tài nguyên
-#        node → ảnh hưởng đến mọi Pod khác trên cùng node (noisy neighbor problem)
-#     2. QoS CLASS: Kubernetes phân loại Pod thành Guaranteed/Burstable/BestEffort
-#        dựa trên limits. Pod không có limits → BestEffort → bị evict đầu tiên khi
-#        node thiếu tài nguyên
-#     3. CAPACITY PLANNING: Không có limits → không thể dự đoán tài nguyên cần thiết
-#        cho cluster, gây khó khăn trong việc auto-scaling và tính toán chi phí
-#     4. OOM KILL: Container không có memory limit có thể bị kernel OOM killer
-#        terminate bất kỳ lúc nào, gây mất dữ liệu
-#   → Best practice: Luôn set cả requests và limits cho CPU và memory
-#
-# THỨ TỰ TRIỂN KHAI (Sync-Wave):
-#   - ConstraintTemplate "K8sRequiredResourceLimits" (wave "-1"): Tạo CRD + Rego policy
-#   - Constraint này (wave "0"): Tạo instance yêu cầu limits cho ["cpu", "memory"]
-#   - Wave ordering đảm bảo: Template ready → Constraint apply → Policy enforcement
-#
-# KIẾN TRÚC:
-#   Thuộc hệ thống OPA Gatekeeper admission controller.
-#   Policy này kết hợp với custom-max-replicas để kiểm soát tài nguyên toàn diện:
-#   - max-replicas: Giới hạn số lượng Pod
-#   - resource-limits: Giới hạn tài nguyên mỗi Pod
-#   → Tổng tài nguyên tối đa = maxReplicas × limits (có thể dự đoán được)
-# =============================================================================
-
-# API version của Gatekeeper Constraint framework
 apiVersion: constraints.gatekeeper.sh/v1beta1
-
-# Kind phải khớp với tên ConstraintTemplate "K8sRequiredResourceLimits"
 kind: K8sRequiredResourceLimits
 metadata:
   name: require-cpu-memory-limits
   annotations:
-    # Sync-wave "0": Triển khai SAU ConstraintTemplate (wave "-1")
-    # Đảm bảo CRD "K8sRequiredResourceLimits" đã tồn tại trong cluster
-    # Nếu không có sync-wave, ArgoCD có thể apply Constraint trước Template → lỗi
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  # enforcementAction: deny → Từ chối tạo/cập nhật container nếu thiếu resource limits
-  # Người dùng phải thêm spec.containers[*].resources.limits trước khi deploy
   enforcementAction: deny
   match:
-    # Danh sách namespace hệ thống được LOẠI TRỪ khỏi policy
-    # Lý do: Thành phần hạ tầng thường được quản lý bởi Helm chart và có
-    # cấu hình resource riêng, áp dụng policy có thể gây conflict
-    #   - argocd: ArgoCD components có resource limits riêng trong Helm values
-    #   - argo-rollouts: Controller resources do Helm chart quản lý
-    #   - gatekeeper-system: Gatekeeper pods, tránh tự khóa nếu thiếu limits
-    #   - kube-node-lease: Namespace hệ thống, ít workload
-    #   - kube-public: Namespace công khai, hiếm khi chạy container
-    #   - kube-system: Core components (kube-proxy, CoreDNS) có resource config riêng
-    #   - monitoring: Prometheus/Grafana stack, resource limits do Helm chart quản lý
     excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
-    # Áp dụng cho tất cả loại workload có thể chứa container
     kinds:
-    # Core API - Pod trực tiếp
     - apiGroups: [""]
       kinds: ["Pod"]
-    # API group "apps" - workload controllers phổ biến
     - apiGroups: ["apps"]
       kinds: ["Deployment", "StatefulSet", "DaemonSet"]
-    # API group "batch" - batch workloads (Job chạy một lần, CronJob chạy định kỳ)
     - apiGroups: ["batch"]
       kinds: ["Job", "CronJob"]
-    # API group "argoproj.io" - Argo Rollouts
     - apiGroups: ["argoproj.io"]
       kinds: ["Rollout"]
-  # Tham số truyền vào Rego policy trong ConstraintTemplate
   parameters:
-    # Danh sách các loại resource limit BẮT BUỘC phải khai báo
-    #   - "cpu": Giới hạn CPU (ví dụ: "500m" = 0.5 CPU core)
-    #   - "memory": Giới hạn memory (ví dụ: "256Mi" = 256 MiB RAM)
-    # Rego policy sẽ kiểm tra spec.containers[*].resources.limits
-    # phải chứa cả "cpu" VÀ "memory" → thiếu một trong hai → bị từ chối
     limits: ["cpu", "memory"]

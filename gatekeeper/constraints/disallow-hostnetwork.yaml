@@ -1,70 +1,19 @@
-# =============================================================================
-# FILE: disallow-hostnetwork.yaml
-# MỤC ĐÍCH: Constraint cấm sử dụng hostNetwork trong các workload
-# MÔ TẢ:
-#   Tạo một instance của ConstraintTemplate "K8sDisallowedHostNetwork" để ngăn chặn
-#   các Pod/Deployment/StatefulSet/DaemonSet/Job/CronJob/Rollout sử dụng hostNetwork.
-#
-#   Khi hostNetwork: true, container chia sẻ network namespace với node host,
-#   nghĩa là container có thể:
-#     - Truy cập trực tiếp tất cả network interface của node
-#     - Lắng nghe trên bất kỳ port nào của node
-#     - Sniff traffic của các Pod khác trên cùng node
-#   → Đây là rủi ro bảo mật nghiêm trọng, cần bị chặn trong môi trường production.
-#
-# THỨ TỰ TRIỂN KHAI (Sync-Wave):
-#   - ConstraintTemplate "K8sDisallowedHostNetwork" (wave "-1"): Tạo CRD trước
-#   - Constraint này (wave "0"): Tạo sau khi CRD đã sẵn sàng
-#   - ArgoCD đảm bảo thứ tự wave: -1 → 0, tránh lỗi "resource not found"
-#
-# KIẾN TRÚC:
-#   Thuộc hệ thống OPA Gatekeeper admission controller.
-#   Constraint này không có phần "parameters" vì chỉ cần kiểm tra
-#   hostNetwork: true hay false (logic nằm hoàn toàn trong ConstraintTemplate).
-# =============================================================================
-
-# API version của Gatekeeper Constraint framework
 apiVersion: constraints.gatekeeper.sh/v1beta1
-
-# Kind phải khớp với tên ConstraintTemplate "K8sDisallowedHostNetwork"
-# CRD này được tạo tự động khi ConstraintTemplate được apply
 kind: K8sDisallowedHostNetwork
 metadata:
   name: disallow-hostnetwork
   annotations:
-    # Sync-wave "0": Triển khai SAU ConstraintTemplate (wave "-1")
-    # Đảm bảo CRD "K8sDisallowedHostNetwork" đã tồn tại trước khi tạo Constraint
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  # enforcementAction: deny → Từ chối request nếu workload dùng hostNetwork: true
-  # Request sẽ bị chặn tại admission controller, không được lưu vào etcd
   enforcementAction: deny
   match:
-    # Danh sách namespace hệ thống được LOẠI TRỪ khỏi policy
-    # Lý do: Các namespace này chứa thành phần hạ tầng cần quyền đặc biệt
-    #   - argocd: GitOps controller, quản lý triển khai ứng dụng
-    #   - argo-rollouts: Controller cho canary/blue-green deployment
-    #   - gatekeeper-system: Chính Gatekeeper, tránh policy khóa chính mình
-    #   - kube-node-lease: Quản lý heartbeat và trạng thái node
-    #   - kube-public: Chứa thông tin công khai của cluster (configmap cluster-info)
-    #   - kube-system: Core components (kube-proxy CẦN hostNetwork để quản lý network rules)
-    #   - monitoring: Một số exporter (node-exporter) cần hostNetwork để thu thập metrics node
     excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
-    # Phạm vi áp dụng rộng: bao phủ hầu hết các loại workload trong Kubernetes
     kinds:
-    # Core API group ("") - Pod trực tiếp
     - apiGroups: [""]
       kinds: ["Pod"]
-    # API group "apps" - các workload controller phổ biến
-    # Deployment: ứng dụng stateless, StatefulSet: ứng dụng stateful, DaemonSet: chạy trên mọi node
     - apiGroups: ["apps"]
       kinds: ["Deployment", "StatefulSet", "DaemonSet"]
-    # API group "batch" - các tác vụ chạy theo lô
-    # Job: tác vụ chạy một lần, CronJob: tác vụ chạy theo lịch
     - apiGroups: ["batch"]
       kinds: ["Job", "CronJob"]
-    # API group "argoproj.io" - Argo Rollouts cho progressive delivery
     - apiGroups: ["argoproj.io"]
       kinds: ["Rollout"]
-  # Không có phần "parameters" vì constraint này chỉ kiểm tra binary:
-  # hostNetwork = true → chặn, hostNetwork = false/không set → cho phép

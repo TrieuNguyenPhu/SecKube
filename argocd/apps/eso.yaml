@@ -1,59 +1,26 @@
-# =============================================================================
-# FILE: eso.yaml
-# MÔ TẢ: ArgoCD Application cài đặt External Secrets Operator (ESO) từ Helm chart
-# -----------------------------------------------------------------------------
-# External Secrets Operator đồng bộ secrets từ các dịch vụ bên ngoài
-# (AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault, v.v.) vào
-# Kubernetes Secrets. ESO cung cấp các CRD: SecretStore, ExternalSecret, v.v.
-#
-# SYNC-WAVE: -2 (Hạ tầng - triển khai sớm nhất)
-#   → Wave -2: Cài đặt Helm chart hạ tầng ← FILE NÀY
-#   - Wave -1: Tạo namespace và cấu hình (eso-config dùng CRD từ ESO)
-#   - Wave  0: Template, monitoring
-#   - Wave  1: Constraints, workloads
-#   - Wave  2: Ứng dụng API
-#
-# ESO phải được cài đặt ở wave -2 vì eso-config (wave -1) cần các CRD
-# SecretStore và ExternalSecret đã sẵn sàng trước khi tạo tài nguyên.
-#
-# PHỤ THUỘC: Không phụ thuộc app nào khác
-# ĐƯỢC PHỤ THUỘC BỞI: eso-config (wave -1) - sử dụng CRD SecretStore/ExternalSecret
-# =============================================================================
-
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: external-secrets
   namespace: argocd
   annotations:
-    # sync-wave: -2 → cài đặt đầu tiên cùng với gatekeeper và policy-controller
-    # Cần triển khai sớm vì cung cấp CRD cho các app phụ thuộc
     argocd.argoproj.io/sync-wave: "-2"
 spec:
   project: default
   source:
-    # Cài từ Helm chart registry chính thức của External Secrets
     repoURL: https://charts.external-secrets.io
     chart: external-secrets
     targetRevision: 2.6.0
     helm:
       values: |
-        # installCRDs: true → cài đặt các Custom Resource Definition (CRD) cùng chart
-        # Các CRD bao gồm: SecretStore, ClusterSecretStore, ExternalSecret, v.v.
-        # Cần thiết để eso-config có thể tạo SecretStore và ExternalSecret sau đó
         installCRDs: true
   destination:
     server: https://kubernetes.default.svc
-    # ESO chạy trong namespace riêng "external-secrets" để cách ly với workloads
     namespace: external-secrets
   syncPolicy:
     automated:
-      # prune: Xóa tài nguyên cũ khi không còn trong Git
       prune: true
-      # selfHeal: Tự phục hồi nếu ai đó sửa trực tiếp trên cluster
       selfHeal: true
     syncOptions:
-    # CreateNamespace=true: Tự động tạo namespace "external-secrets"
     - CreateNamespace=true
-    # ServerSideApply=true: Xử lý tốt hơn conflict khi apply CRD lớn
     - ServerSideApply=true

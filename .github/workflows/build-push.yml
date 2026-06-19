@@ -1,35 +1,6 @@
-# =============================================================================
-# PIPELINE CI/CD: Build, Scan, Sign & Push Docker Image
-# =============================================================================
-# Mục đích:
-#   File này định nghĩa pipeline CI/CD chính của dự án. Pipeline thực hiện
-#   toàn bộ quy trình từ build Docker image → quét lỗ hổng bảo mật → push
-#   lên registry → ký xác thực (sign) → cập nhật phiên bản theo GitOps.
-#
-# Vai trò trong kiến trúc:
-#   - Đây là trung tâm của quy trình Continuous Delivery, đảm bảo mỗi thay đổi
-#     code trong src/api đều được đóng gói, kiểm tra bảo mật, và triển khai tự động.
-#   - Kết hợp với ArgoCD (GitOps): pipeline cập nhật file rollout.yaml với phiên bản
-#     mới → ArgoCD phát hiện thay đổi → tự động triển khai lên Kubernetes cluster.
-#   - Đảm bảo supply chain security bằng cách:
-#     (1) Quét lỗ hổng với Trivy trước khi push image
-#     (2) Ký image bằng Cosign để xác minh tính toàn vẹn (integrity)
-#
-# Luồng thực thi:
-#   Checkout → Tính version → Login GHCR → Tạo metadata → Validate secrets
-#   → Build image → Scan Trivy → Push image → Sign image → Cập nhật rollout.yaml
-#   → Commit & push → Tạo git tag
-# =============================================================================
+# Build and push Docker image to GitHub Container Registry
 name: Build and Push Image
 
-# -----------------------------------------------------------------------------
-# TRIGGER: Khi nào pipeline được kích hoạt
-# -----------------------------------------------------------------------------
-# Pipeline chạy trong 2 trường hợp:
-# 1. Push vào nhánh main VÀ có thay đổi trong src/api hoặc chính file workflow này
-#    → Chỉ build lại khi code API thực sự thay đổi, tránh build thừa
-# 2. workflow_dispatch: Cho phép chạy thủ công từ GitHub UI (dùng khi cần re-build
-#    mà không cần commit mới, ví dụ khi base image có bản vá bảo mật)
 on:
   push:
     branches:
@@ -39,13 +10,6 @@ on:
       - '.github/workflows/build-push.yml'
   workflow_dispatch:
 
-# -----------------------------------------------------------------------------
-# BIẾN MÔI TRƯỜNG TOÀN CỤC
-# -----------------------------------------------------------------------------
-# REGISTRY: Sử dụng GitHub Container Registry (ghcr.io) để lưu trữ Docker image
-#   → Tích hợp sẵn với GitHub, quản lý quyền truy cập qua GITHUB_TOKEN
-# IMAGE_NAME: Tên đầy đủ của image trên registry
-#   → Format: <owner>/<image-name>
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: trieunguyenphu/w10-api
@@ -53,44 +17,16 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
-    # -------------------------------------------------------------------------
-    # QUYỀN HẠN (Permissions) cho GITHUB_TOKEN
-    # -------------------------------------------------------------------------
-    # contents: write  → Cần để commit cập nhật rollout.yaml và tạo git tag
-    # packages: write  → Cần để push Docker image lên GitHub Container Registry
-    # Nguyên tắc Least Privilege: chỉ cấp đúng quyền cần thiết, không dùng
-    # quyền mặc định (thường là write-all) để giảm rủi ro bảo mật
     permissions:
       contents: write
       packages: write
 
     steps:
-      # -----------------------------------------------------------------------
-      # BƯỚC 1: Checkout mã nguồn từ repository
-      # -----------------------------------------------------------------------
-      # fetch-depth: 0 → Lấy TOÀN BỘ lịch sử commit (không chỉ commit mới nhất)
-      # Lý do: Action semantic-version ở bước sau cần đọc lịch sử commit message
-      # để tính toán phiên bản (major/minor/patch) dựa trên Conventional Commits
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 2: Tính toán phiên bản ngữ nghĩa (Semantic Versioning)
-      # -----------------------------------------------------------------------
-      # Sử dụng Conventional Commits để tự động xác định phiên bản:
-      #   - major_pattern: Commit chứa "BREAKING CHANGE:" hoặc "!:" → tăng MAJOR
-      #     (ví dụ: v1.0.0 → v2.0.0) — thay đổi không tương thích ngược
-      #   - minor_pattern: Commit bắt đầu bằng "feat" → tăng MINOR
-      #     (ví dụ: v1.0.0 → v1.1.0) — thêm tính năng mới
-      #   - Các commit khác (fix, chore, docs...) → tăng PATCH
-      #     (ví dụ: v1.0.0 → v1.0.1) — sửa lỗi nhỏ
-      # tag_prefix: "v" → Tags có dạng v1.2.3
-      # bump_each_commit: false → Chỉ tăng version 1 lần cho mỗi lần build,
-      #   không tăng theo từng commit riêng lẻ
-      # Output: steps.semver.outputs.version (ví dụ: "1.2.3")
       - name: Calculate semantic version
         id: semver
         uses: paulhatch/semantic-version@v5.4.0
@@ -101,13 +37,6 @@ jobs:
           version_format: "${major}.${minor}.${patch}"
           bump_each_commit: false
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 3: Đăng nhập vào GitHub Container Registry (GHCR)
-      # -----------------------------------------------------------------------
-      # Xác thực với GHCR để có quyền push image ở các bước sau.
-      # - username: github.actor → Tài khoản GitHub của người/bot kích hoạt workflow
-      # - password: GITHUB_TOKEN → Token tự động được GitHub cung cấp cho mỗi lần
-      #   chạy workflow, có phạm vi quyền được giới hạn bởi block permissions ở trên
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
@@ -115,17 +44,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 4: Trích xuất metadata cho Docker image (tags, labels)
-      # -----------------------------------------------------------------------
-      # Tạo danh sách tags cho image, phục vụ nhiều mục đích khác nhau:
-      #   - latest           → Luôn trỏ đến bản build mới nhất
-      #                        (tiện cho dev, KHÔNG dùng cho production)
-      #   - <version>        → Tag phiên bản cố định (ví dụ: 1.2.3)
-      #                        (dùng cho production, đảm bảo reproducibility)
-      #   - v<version>-<sha> → Tag kết hợp version + commit SHA
-      #                        (dùng để truy vết chính xác commit nào tạo ra image)
-      # Output: steps.meta.outputs.tags và steps.meta.outputs.labels
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -136,20 +54,6 @@ jobs:
             type=raw,value=${{ steps.semver.outputs.version }}
             type=sha,prefix=v${{ steps.semver.outputs.version }}-
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 5: Kiểm tra tính hợp lệ của Cosign secrets
-      # -----------------------------------------------------------------------
-      # Cosign (thuộc dự án Sigstore) dùng để KÝ SỐ Docker image, đảm bảo
-      # supply chain security — xác minh image không bị thay đổi sau khi build.
-      #
-      # Kiểm tra 3 điều kiện trước khi tiến hành build:
-      # 1. COSIGN_PRIVATE_KEY tồn tại → Nếu thiếu, không thể ký image
-      # 2. COSIGN_PASSWORD tồn tại → Mật khẩu giải mã private key
-      # 3. COSIGN_PRIVATE_KEY đúng định dạng PEM → Phải bắt đầu bằng
-      #    "-----BEGIN ... PRIVATE KEY-----" để đảm bảo key được copy đầy đủ
-      #
-      # Fail-fast: Dừng pipeline sớm nếu secrets sai, tránh lãng phí thời gian
-      # build image rồi mới phát hiện không thể ký
       - name: Validate Cosign secrets
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
@@ -168,14 +72,6 @@ jobs:
             exit 1
           fi
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 6: Build Docker image (chưa push)
-      # -----------------------------------------------------------------------
-      # Build image từ Dockerfile trong thư mục src/api.
-      # - load: true  → Load image vào Docker daemon cục bộ (để scan Trivy ở bước sau)
-      # - push: false → CHƯA push lên registry, chỉ build và giữ local
-      # Chiến lược: Build trước → Scan bảo mật → Chỉ push nếu scan pass
-      # → Đảm bảo image có lỗ hổng nghiêm trọng KHÔNG BAO GIỜ lên registry
       - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
@@ -185,17 +81,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 7: Quét lỗ hổng bảo mật bằng Trivy
-      # -----------------------------------------------------------------------
-      # Trivy (của Aqua Security) quét image để tìm CVE (Common Vulnerabilities
-      # and Exposures) trong các package và dependency.
-      # - severity: HIGH,CRITICAL → Chỉ quan tâm lỗ hổng mức độ cao và nghiêm trọng
-      #   (bỏ qua LOW, MEDIUM để tránh false positive quá nhiều)
-      # - ignore-unfixed: true → Bỏ qua lỗ hổng chưa có bản vá
-      #   (vì không thể fix được, report ra chỉ gây nhiễu)
-      # - exit-code: "1" → Pipeline DỪNG LẠI nếu phát hiện lỗ hổng HIGH/CRITICAL
-      #   → Đây là security gate: image PHẢI sạch mới được push lên registry
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
@@ -204,45 +89,15 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 8: Push tất cả tags lên GitHub Container Registry
-      # -----------------------------------------------------------------------
-      # Chỉ chạy đến bước này nếu Trivy scan pass (không có lỗ hổng HIGH/CRITICAL).
-      # Đẩy từng tag một lên registry bằng vòng lặp while:
-      # - Đọc danh sách tags từ output của bước metadata
-      # - Push từng tag riêng biệt (latest, version, version-sha)
-      # Sau bước này, image đã có trên GHCR nhưng CHƯA được ký (unsigned)
       - name: Push signed-candidate tags
         run: |
           while IFS= read -r tag; do
             [ -n "$tag" ] && docker push "$tag"
           done <<< "${{ steps.meta.outputs.tags }}"
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 9: Cài đặt Cosign CLI
-      # -----------------------------------------------------------------------
-      # Cosign là công cụ dòng lệnh từ dự án Sigstore, dùng để ký và xác minh
-      # (sign & verify) container image. Là một phần quan trọng của
-      # supply chain security trong Kubernetes ecosystem.
       - name: Install Cosign
         uses: sigstore/cosign-installer@main
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 10: Ký xác thực tất cả image tags bằng Cosign
-      # -----------------------------------------------------------------------
-      # Ký số (digital sign) từng tag đã push lên registry, sử dụng private key.
-      # Quy trình bảo mật:
-      #   1. umask 077 → Đặt quyền file: chỉ owner mới đọc/ghi được
-      #      (ngăn các process khác đọc private key)
-      #   2. trap 'rm -f cosign.key' EXIT → Tự động xóa file key khi step kết thúc
-      #      (dù thành công hay thất bại, key không bao giờ nằm lại trên disk)
-      #   3. Ghi private key ra file tạm → Cosign cần đọc key từ file
-      #   4. Lặp qua từng tag và ký bằng cosign sign --key
-      #      --yes: Tự động đồng ý upload signature lên Rekor transparency log
-      #
-      # Sau bước này, mỗi tag đều có chữ ký số đính kèm trên registry.
-      # Khi deploy, OPA Gatekeeper + Cosign Verify sẽ kiểm tra chữ ký này
-      # → Chỉ image đã ký mới được phép chạy trên cluster
       - name: Sign pushed image tags
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
@@ -255,31 +110,11 @@ jobs:
             [ -n "$tag" ] && cosign sign --yes --key cosign.key "$tag"
           done <<< "${{ steps.meta.outputs.tags }}"
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 11: Cập nhật phiên bản trong rollout.yaml (GitOps Pattern)
-      # -----------------------------------------------------------------------
-      # Đây là bước cốt lõi của GitOps: thay vì deploy trực tiếp lên cluster,
-      # ta cập nhật file manifest trong Git → ArgoCD theo dõi Git repo và tự
-      # động đồng bộ (sync) thay đổi lên Kubernetes cluster.
-      #
-      # Sử dụng sed để thay thế 2 giá trị trong app-api/rollout.yaml:
-      # 1. image: ghcr.io/.../w10-api:<old> → image: ghcr.io/.../w10-api:<new>
-      #    (cập nhật Docker image reference sang phiên bản mới)
-      # 2. value: "v<old>" → value: "v<new>"
-      #    (cập nhật biến môi trường VERSION trong container)
       - name: Update rollout.yaml with new version
         run: |
           sed -i "s|image: ghcr.io/.*/w10-api:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}|g" app-api/rollout.yaml
           sed -i "s|value: \"v.*\"|value: \"v${{ steps.semver.outputs.version }}\"|g" app-api/rollout.yaml
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 12: Commit và push thay đổi rollout.yaml lên Git
-      # -----------------------------------------------------------------------
-      # Bot github-actions tự động commit thay đổi phiên bản.
-      # - git diff --staged --quiet: Kiểm tra xem có thay đổi thực sự không
-      #   → Tránh tạo commit rỗng nếu version không thay đổi
-      # - Commit message theo format Conventional Commits: "chore: bump version..."
-      #   → Commit này sẽ KHÔNG kích hoạt lại pipeline (vì không nằm trong paths filter)
       - name: Commit and push version update
         run: |
           git config user.name "github-actions[bot]"
@@ -292,15 +127,6 @@ jobs:
             git push
           fi
 
-      # -----------------------------------------------------------------------
-      # BƯỚC 13: Tạo Git tag cho phiên bản mới
-      # -----------------------------------------------------------------------
-      # Tạo tag có format v<major>.<minor>.<patch> (ví dụ: v1.2.3)
-      # Mục đích:
-      # 1. Đánh dấu điểm release chính xác trong lịch sử Git
-      # 2. Action semantic-version ở bước 2 sử dụng tag này để tính version
-      #    cho lần build tiếp theo (đếm commit kể từ tag gần nhất)
-      # 3. Dễ dàng rollback: checkout về tag cụ thể nếu cần
       - name: Create git tag
         run: |
           git tag v${{ steps.semver.outputs.version }}

@@ -1,112 +1,49 @@
-# =============================================================================
-# FILE: k8s-prometheus.yaml
-# MÔ TẢ: ArgoCD Application cài đặt kube-prometheus-stack (Prometheus + AlertManager + Grafana)
-# -----------------------------------------------------------------------------
-# Bộ monitoring stack hoàn chỉnh cho Kubernetes, bao gồm:
-#   - Prometheus: Thu thập metrics từ cluster và ứng dụng
-#   - AlertManager: Quản lý cảnh báo, gửi thông báo qua email/Slack/v.v.
-#   - Grafana: Dashboard trực quan hóa metrics
-#   - Node Exporter, kube-state-metrics: Cung cấp metrics hệ thống
-#
-# SYNC-WAVE: 0 (Monitoring và template)
-#   - Wave -2: Cài đặt hạ tầng (Gatekeeper, ESO, Policy Controller)
-#   - Wave -1: Tạo namespace và cấu hình
-#   → Wave  0: Cài đặt monitoring stack ← FILE NÀY
-#   - Wave  1: Triển khai PrometheusRule cho SLO alerts (app-alert)
-#   - Wave  2: Ứng dụng API (expose metrics qua ServiceMonitor)
-#
-# Prometheus phải ở wave 0 (trước wave 1) vì app-alert (wave 1) cần CRD
-# PrometheusRule đã sẵn sàng để tạo alert rules.
-#
-# PHỤ THUỘC: Không phụ thuộc app nào khác
-# ĐƯỢC PHỤ THUỘC BỞI:
-#   - app-alert (wave 1) - dùng CRD PrometheusRule
-#   - app-analysis (wave 1) - AnalysisTemplate query Prometheus
-#   - app-api (wave 2) - ServiceMonitor scrape metrics từ API
-# =============================================================================
-
+# ArgoCD App: Deploy Prometheus + Alertmanager + Grafana stack
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: kube-prometheus-stack
   namespace: argocd
   annotations:
-    # sync-wave: 0 → cài đặt cùng lúc với gatekeeper-templates và argo-rollouts
     argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
-    # Helm chart chính thức của kube-prometheus-stack (Prometheus community)
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
     targetRevision: 65.1.1
     helm:
       values: |
-        # =====================================================================
-        # CẤU HÌNH PROMETHEUS
-        # =====================================================================
         prometheus:
           prometheusSpec:
-            # serviceMonitorSelectorNilUsesHelmValues: false
-            # Mặc định Prometheus chỉ scrape ServiceMonitor có label trùng với
-            # Helm release. Đặt false để Prometheus scrape TẤT CẢ ServiceMonitor
-            # trong cluster, bao gồm ServiceMonitor của app API (wave 2)
             serviceMonitorSelectorNilUsesHelmValues: false
 
-        # =====================================================================
-        # CẤU HÌNH ALERTMANAGER
-        # AlertManager nhận alerts từ Prometheus và gửi thông báo qua email
-        # =====================================================================
         alertmanager:
           config:
             global:
-              # resolve_timeout: Thời gian chờ trước khi đánh dấu alert đã resolved
-              # nếu không nhận được alert firing mới trong 5 phút
               resolve_timeout: 5m
             route:
-              # group_by: Nhóm các alerts có cùng alertname và severity thành 1 notification
-              # Tránh gửi quá nhiều email riêng lẻ cho cùng loại alert
               group_by: ['alertname', 'severity']
-              # group_wait: Chờ 10s sau alert đầu tiên để gom thêm alerts cùng nhóm
               group_wait: 10s
-              # group_interval: Khoảng cách tối thiểu giữa 2 lần gửi notification cho cùng nhóm
               group_interval: 5m
-              # repeat_interval: Gửi lại notification mỗi 12h nếu alert vẫn firing
               repeat_interval: 12h
-              # receiver mặc định: gửi email
               receiver: 'email-notifications'
               routes:
-              # Route riêng cho Watchdog alert: gửi vào /dev/null
-              # Watchdog là alert luôn firing để kiểm tra AlertManager còn hoạt động
               - receiver: 'null'
                 matchers:
                 - alertname = "Watchdog"
             receivers:
-            # Receiver rỗng: dùng để ignore Watchdog alert
             - name: 'null'
-            # Receiver email: gửi thông báo alert qua Gmail SMTP
             - name: 'email-notifications'
               email_configs:
               - to: 'nguyentrieu080604@gmail.com'
                 from: 'nguyentrieu080604@gmail.com'
-                # SMTP server của Gmail, port 587 (TLS/STARTTLS)
                 smarthost: 'smtp.gmail.com:587'
                 auth_username: 'nguyentrieu080604@gmail.com'
-                # Mật khẩu email được mount từ K8s Secret qua alertmanagerSpec.secrets
-                # Secret "alertmanager-email" chứa key "password" (App Password của Gmail)
                 auth_password_file: /etc/alertmanager/secrets/alertmanager-email/password
                 require_tls: true
                 headers:
-                  # Subject email với emoji và thông tin alert
                   Subject: '🚨 [SecKube Alert] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
-                # =========================================================
-                # HTML EMAIL TEMPLATE
-                # Template email đẹp với CSS styling, hiển thị:
-                # - Tên alert, severity (critical/warning)
-                # - Summary và description từ annotations
-                # - Thời gian bắt đầu/kết thúc
-                # - Namespace và Pod bị ảnh hưởng
-                # =========================================================
                 html: |
                   <!DOCTYPE html>
                   <html>
@@ -169,23 +106,15 @@ spec:
                   </html>
 
           alertmanagerSpec:
-            # Mount K8s Secret "alertmanager-email" vào AlertManager Pod
-            # Secret này chứa Gmail App Password để xác thực SMTP
-            # Được tham chiếu bởi auth_password_file ở trên
             secrets:
             - alertmanager-email
-
   destination:
     server: https://kubernetes.default.svc
-    # Tất cả tài nguyên monitoring nằm trong namespace "monitoring"
     namespace: monitoring
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-    # CreateNamespace=true: Tự động tạo namespace "monitoring"
     - CreateNamespace=true
-    # ServerSideApply=true: Cần thiết vì prometheus-stack có CRD rất lớn
-    # (PrometheusRule, ServiceMonitor, v.v.)
     - ServerSideApply=true

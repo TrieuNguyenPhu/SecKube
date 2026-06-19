@@ -1,79 +1,21 @@
-# =============================================================================
-# FILE: analysis-template.yaml
-# MÔ TẢ: Argo Rollouts AnalysisTemplate — tự động đánh giá sức khỏe
-#         canary deployment bằng cách query metrics từ Prometheus.
-#
-# VAI TRÒ TRONG KIẾN TRÚC:
-#   - Đây là "bộ não" của progressive delivery — quyết định canary
-#     được promote hay rollback dựa trên dữ liệu thực tế
-#   - Rollout (app-api/rollout.yaml) tham chiếu template này trong
-#     strategy.canary.analysis.templates[].templateName
-#   - Khi canary bắt đầu (từ step 1 trở đi), Argo Rollouts Controller
-#     tạo AnalysisRun từ template này và chạy liên tục
-#   - Nếu success rate < 90% → AnalysisRun thất bại → tự động rollback
-#
-# FLOW DỮ LIỆU:
-#   Flask API → /metrics → Prometheus (scrape qua ServiceMonitor)
-#   → AnalysisTemplate query Prometheus → Kết quả → Argo Rollouts
-#   → Quyết định: promote canary hoặc rollback
-#
-# SO SÁNH VỚI PrometheusRule (app-alert/):
-#   - AnalysisTemplate: Ngưỡng 90%, đánh giá canary, hành động = rollback
-#   - PrometheusRule: Ngưỡng 95%, giám sát production, hành động = alert email
-#   - Ngưỡng canary thấp hơn vì traffic canary ít → noise nhiều hơn
-# =============================================================================
-
+# AnalysisTemplate: Tự chấm canary bằng success rate
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
   name: success-rate
-  # Namespace "demo" — phải cùng namespace với Rollout để được tham chiếu
   namespace: demo
 spec:
   metrics:
-  # Định nghĩa metric dùng để đánh giá canary
   - name: success-rate
-    # interval: Tần suất chạy query (mỗi 30 giây)
-    # Đồng bộ với interval trong PrometheusRule để dữ liệu nhất quán
     interval: 30s
-
-    # successCondition: Điều kiện để đánh giá "PASS" cho mỗi lần đo
-    # result >= 0.90 → Success rate phải >= 90%
-    # Ngưỡng 90% (thấp hơn SLO 95%) vì:
-    #   - Traffic canary ít → tỷ lệ dao động lớn hơn
-    #   - Tránh rollback sai (false negative) khi traffic thấp
     successCondition: result >= 0.90
-
-    # failureLimit: Số lần đo FAIL tối đa trước khi AnalysisRun thất bại
-    # 10 lần × 30s interval = 5 phút chịu đựng tối đa
-    # Nếu > 10 lần fail → Argo Rollouts tự động rollback canary
-    # Giá trị cao (10) cho phép tolerance với spike ngắn hạn
     failureLimit: 10
-
-    # Provider: Nguồn dữ liệu để lấy metrics
     provider:
       prometheus:
-        # Địa chỉ Prometheus service trong cluster
-        # Format: http://<service-name>.<namespace>.svc:<port>
-        # kube-prometheus-stack tạo Service này khi cài đặt Helm chart
         address: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
-
-        # PromQL query tính success rate trong 2 phút gần nhất
         query: |
           scalar(
             sum(rate(flask_http_request_duration_seconds_count{namespace="demo",app="api",status!~"5.."}[2m]))
             /
             sum(rate(flask_http_request_duration_seconds_count{namespace="demo",app="api"}[2m]))
           )
-        # GIẢI THÍCH PromQL:
-        # - scalar(): Chuyển kết quả vector → scalar (số đơn) cho Argo Rollouts
-        #   AnalysisTemplate yêu cầu kết quả là scalar, không phải vector
-        # - flask_http_request_duration_seconds_count: Counter tổng requests
-        #   (được Flask prometheus-instrumentator tạo tự động)
-        # - {namespace="demo", app="api"}: Lọc chỉ metrics từ API pods trong ns demo
-        #   Giới hạn scope tránh đếm nhầm metrics từ service khác
-        # - {status!~"5.."}: Loại bỏ HTTP 5xx (server errors)
-        # - rate(...[2m]): Tốc độ tăng trung bình trong 2 phút
-        #   Window 2 phút (ngắn hơn 5m của PrometheusRule) vì canary cần
-        #   phản hồi nhanh — phát hiện lỗi sớm để rollback kịp thời
-        # - Kết quả: 0.0 → 1.0 (tỷ lệ request thành công)

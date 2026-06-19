@@ -1,62 +1,17 @@
-# =============================================================================
-# FILE: custom-max-replicas.yaml
-# MỤC ĐÍCH: Constraint giới hạn số lượng replicas tối đa cho Deployment và Rollout
-# MÔ TẢ:
-#   Tạo một instance của ConstraintTemplate "K8sMaxReplicas" để áp dụng chính sách
-#   giới hạn replicas tối đa là 5 cho các workload. Điều này ngăn chặn việc
-#   scale quá mức, giúp bảo vệ tài nguyên cluster khỏi bị sử dụng cạn kiệt
-#   bởi một ứng dụng đơn lẻ.
-#
-# THỨ TỰ TRIỂN KHAI (Sync-Wave):
-#   - ConstraintTemplate (wave "-1"): Phải được tạo TRƯỚC để định nghĩa CRD
-#   - Constraint này (wave "0"): Được tạo SAU template, đảm bảo CRD
-#     "K8sMaxReplicas" đã tồn tại trong cluster trước khi tạo instance
-#   - Nếu Constraint được tạo trước Template → lỗi vì Kubernetes chưa biết
-#     resource type "K8sMaxReplicas"
-#
-# KIẾN TRÚC:
-#   Thuộc hệ thống OPA Gatekeeper - hoạt động như admission controller,
-#   kiểm tra mọi request tạo/cập nhật resource trước khi lưu vào etcd.
-# =============================================================================
-
-# API version của Gatekeeper Constraint framework (v1beta1)
 apiVersion: constraints.gatekeeper.sh/v1beta1
-
-# "kind" phải khớp chính xác với tên ConstraintTemplate đã định nghĩa trước đó
-# K8sMaxReplicas là CRD được tạo tự động khi apply ConstraintTemplate tương ứng
 kind: K8sMaxReplicas
 metadata:
   name: max-five-replicas
   annotations:
-    # Sync-wave "0": ArgoCD sẽ triển khai resource này ở wave 0
-    # Template (wave "-1") được triển khai trước → CRD đã sẵn sàng
-    # Thứ tự: wave -1 (Template) → wave 0 (Constraint) → wave 1+ (ứng dụng)
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  # enforcementAction: deny → Từ chối hoàn toàn request vi phạm (không chỉ cảnh báo)
-  # Các giá trị khác có thể là: "dryrun" (chỉ ghi log), "warn" (cảnh báo nhưng cho phép)
   enforcementAction: deny
   match:
-    # Danh sách namespace được LOẠI TRỪ khỏi policy này
-    # Lý do loại trừ: Đây là các namespace hệ thống cần quyền đặc biệt
-    #   - argocd: Namespace của ArgoCD, quản lý GitOps deployment
-    #   - argo-rollouts: Namespace của Argo Rollouts controller, quản lý chiến lược deploy
-    #   - gatekeeper-system: Namespace của chính Gatekeeper, tránh tự khóa chính mình
-    #   - kube-node-lease: Namespace hệ thống quản lý heartbeat của node
-    #   - kube-public: Namespace công khai của Kubernetes, chứa thông tin cluster
-    #   - kube-system: Namespace core của Kubernetes (CoreDNS, kube-proxy, v.v.)
-    #   - monitoring: Namespace giám sát (Prometheus, Grafana), có thể cần scale linh hoạt
     excludedNamespaces: ["argocd", "argo-rollouts", "gatekeeper-system", "kube-node-lease", "kube-public", "kube-system", "monitoring"]
-    # Các loại resource bị ảnh hưởng bởi constraint này
     kinds:
-    # Deployment tiêu chuẩn của Kubernetes (apiGroup: "apps")
     - apiGroups: ["apps"]
       kinds: ["Deployment"]
-    # Argo Rollout - resource tùy chỉnh cho canary/blue-green deployment (apiGroup: "argoproj.io")
     - apiGroups: ["argoproj.io"]
       kinds: ["Rollout"]
-  # Tham số truyền vào Rego policy trong ConstraintTemplate
   parameters:
-    # Giới hạn số replicas tối đa là 5 cho mỗi Deployment/Rollout
-    # Nếu người dùng set spec.replicas > 5 → request bị từ chối
     maxReplicas: 5

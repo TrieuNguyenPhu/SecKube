@@ -1,52 +1,22 @@
-# =============================================================================
-# FILE: eso-config.yaml
-# MÔ TẢ: ArgoCD Application triển khai cấu hình cho External Secrets Operator
-# -----------------------------------------------------------------------------
-# Triển khai SecretStore và ExternalSecret vào namespace "demo".
-#   - SecretStore: Định nghĩa kết nối tới dịch vụ quản lý secrets bên ngoài
-#     (ví dụ: AWS Secrets Manager, GCP Secret Manager, v.v.)
-#   - ExternalSecret: Khai báo secret nào cần đồng bộ từ bên ngoài vào K8s Secret
-#
-# SYNC-WAVE: -1 (Cấu hình chung)
-#   - Wave -2: Cài đặt ESO operator (cung cấp CRD SecretStore, ExternalSecret)
-#   → Wave -1: Tạo SecretStore + ExternalSecret ← FILE NÀY
-#   - Wave  0: Template, monitoring
-#   - Wave  1: Constraints, workloads
-#   - Wave  2: Ứng dụng API (có thể dùng secrets đã đồng bộ)
-#
-# Phải ở wave -1 (sau wave -2) vì cần CRD từ ESO operator đã sẵn sàng.
-# Secrets cần có trước khi ứng dụng API (wave 2) khởi động và cần đọc chúng.
-#
-# PHỤ THUỘC: eso (wave -2) - cung cấp CRD SecretStore/ExternalSecret
-# ĐƯỢC PHỤ THUỘC BỞI: app-api (wave 2) - sử dụng K8s Secrets đã đồng bộ
-# =============================================================================
-
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: eso-config
   namespace: argocd
   annotations:
-    # sync-wave: -1 → triển khai sau khi ESO operator (wave -2) đã cài đặt CRD
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   project: default
   source:
-    # Lấy manifest SecretStore + ExternalSecret từ thư mục eso/ trong Git repo
     repoURL: https://github.com/TrieuNguyenPhu/SecKube.git
     path: eso
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
-    # Triển khai vào namespace "demo" - cùng namespace với ứng dụng API
-    # ExternalSecret sẽ tạo K8s Secret trong namespace này
     namespace: demo
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-    # ServerSideApply=true: Dùng Server-Side Apply để xử lý đúng các field
-    # phức tạp trong SecretStore/ExternalSecret
-    # KHÔNG có CreateNamespace vì namespace "demo" đã được tạo bởi app-common (wave -1)
     - ServerSideApply=true

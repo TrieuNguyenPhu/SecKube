@@ -1,39 +1,7 @@
-# =============================================================================
-# FILE: demo-namespace.yaml
-# MÔ TẢ: Tạo Kubernetes Namespace "demo" cho toàn bộ workload của API.
-#
-# VAI TRÒ TRONG KIẾN TRÚC:
-#   - Namespace là đơn vị cách ly (isolation) cơ bản trong Kubernetes
-#   - Tất cả resources của ứng dụng (Rollout, Service, ServiceMonitor,
-#     AnalysisTemplate, Secrets) đều nằm trong namespace "demo"
-#   - Namespace cho phép:
-#       + Phân quyền RBAC theo team/project
-#       + Áp dụng ResourceQuota và LimitRange
-#       + Gatekeeper constraints có thể target theo namespace
-#       + Network Policies cách ly traffic giữa các namespace
-#
-# THỨ TỰ TRIỂN KHAI (ArgoCD Sync Waves):
-#   - Wave 0: Namespace (file này) ← TẠO ĐẦU TIÊN
-#   - Wave 0: Rollout (app-api/rollout.yaml) — tạo pods
-#   - Wave 1: Service (app-api/service.yaml) — expose pods
-#   - Wave 2: ServiceMonitor (app-api/servicemonitor.yaml) — monitoring
-#
-# LÝ DO SYNC-WAVE 0:
-#   Namespace PHẢI được tạo trước tất cả resources khác vì:
-#   - Rollout, Service, Secret đều khai báo "namespace: demo"
-#   - Nếu namespace chưa tồn tại → các resource khác sẽ lỗi khi apply
-#   - ArgoCD xử lý wave 0 trước wave 1, 2, ... đảm bảo thứ tự đúng
-#   - Namespace và Rollout cùng wave 0 nhưng K8s xử lý Namespace trước
-#     (ArgoCD áp dụng resource ordering mặc định: Namespace > Deployment)
-# =============================================================================
-
+# Namespace: Tạo namespace demo cho API workload
 apiVersion: v1
 kind: Namespace
 metadata:
-  # Tên namespace — được tham chiếu bởi tất cả resources trong app-api/,
-  # app-analysis/, và các ExternalSecret resources
   name: demo
   annotations:
-    # Sync-wave "0": Đây là resource được ArgoCD triển khai đầu tiên
-    # Mọi resource khác (wave 1, 2, ...) đều phụ thuộc vào namespace này
     argocd.argoproj.io/sync-wave: "0"
