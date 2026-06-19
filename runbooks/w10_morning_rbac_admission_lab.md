@@ -154,3 +154,30 @@ Checklist evidence toi thieu:
 - `evidence/gk-06` den `gk-07`: custom policy reject/pass.
 - Anh ArgoCD cac app `Synced/Healthy`.
 - Anh/terminal lenh `kubectl get k8sdisallowedtags,k8srequiredresourcelimits,k8sdisallowedrunasuser,k8sdisallowedhostnetwork,k8smaxreplicas` hien 5 constraints.
+
+## 8. Evidence da sap xep
+
+Thu muc nop Lab 1:
+
+```text
+evidence/lab1/
+|-- 01-argocd-gatekeeper-synced-rollout-constraints.png
+|-- 02-rbac-can-i-alice-bob-carol.png
+`-- 03-gatekeeper-admission-reject-pass-custom.png
+```
+
+Doi chieu voi mau `evidence/_samples/SCRUM-58_attachments/`:
+
+- `01-argocd-gatekeeper-synced-rollout-constraints.png`: du de chung minh `root`, `gatekeeper`, `gatekeeper-templates`, `gatekeeper-constraints`, `rbac`, `api` deu `Synced/Healthy`; Gatekeeper controller rolled out; 5 constraints dang `deny`.
+- `02-rbac-can-i-alice-bob-carol.png`: du de chung minh RBAC co ket qua `yes/no/yes/no`.
+- `03-gatekeeper-admission-reject-pass-custom.png`: du de chung minh 4 policy bat buoc reject, `good-pod` pass, custom max replicas reject/pass.
+
+Neu giao vien yeu cau anh tach rieng theo tung policy nhu mau SCRUM-58, chup them 5 anh nho hon:
+
+- `04-gatekeeper-reject-latest-tag.png`
+- `05-gatekeeper-reject-resource-limits.png`
+- `06-gatekeeper-reject-runasuser-root.png`
+- `07-gatekeeper-reject-hostnetwork.png`
+- `08-gatekeeper-custom-max-replicas.png`
+
+Khong bat buoc neu anh `03-gatekeeper-admission-reject-pass-custom.png` hien ro du tat ca output.

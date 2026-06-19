@@ -2,6 +2,19 @@
 
 Use this checklist to test Lab 2 and capture screenshots/evidence. Keep screenshots in your report or LMS submission, not in the repo unless your instructor asks for them.
 
+Current organized submission folder:
+
+```text
+evidence/lab2/
+|-- 01-argocd-applications-synced-healthy.jpeg
+|-- 02-argocd-applications-cli-synced-healthy.png
+|-- 03-eso-aws-secret-rotated.png
+|-- 04-eso-rotate-secret-pods-no-restart.png
+`-- 05-github-actions-trivy-cosign-signed.jpeg
+```
+
+Compared with the sample folder `evidence/_samples/SCRUM-59_attachments/`, the current screenshots already cover ArgoCD app health, secret rotation, pods not restarting, and GitHub Actions Trivy/Cosign success. Capture the missing optional-but-recommended evidence at the end of this runbook if the final report needs full supply-chain proof.
+
 ## Evidence 1 - Repo deliverables
 
 Show the required files exist:
@@ -212,3 +225,48 @@ Expected:
 Screenshot target:
 
 - Terminal showing no real secrets found.
+
+## Current evidence review
+
+Evidence already captured:
+
+- `01-argocd-applications-synced-healthy.jpeg`: Argo CD UI shows all applications healthy and synced, including `eso-config`, `external-secrets`, `policies`, `policy-controller`, `rbac`, and `root`.
+- `02-argocd-applications-cli-synced-healthy.png`: Terminal confirms Argo CD applications are `Synced` and `Healthy`.
+- `03-eso-aws-secret-rotated.png`: AWS Secrets Manager `demo/db` was updated with a new version.
+- `04-eso-rotate-secret-pods-no-restart.png`: Kubernetes `db-secret` reflects the rotated value and API pods remain `Running` with `RESTARTS 0`.
+- `05-github-actions-trivy-cosign-signed.jpeg`: GitHub Actions workflow succeeded and includes Trivy scan plus Cosign signing steps.
+
+Evidence still recommended:
+
+- `06-policy-controller-pods-healthy.png`: terminal output of `kubectl get pods -n cosign-system` or an Argo CD details view for `policy-controller`.
+- `07-cosign-verify-signed-image.png`: terminal output of `cosign verify --key .\signing\cosign.pub ghcr.io/trieunguyenphu/w10-api:<SIGNED_TAG>`.
+- `08-admission-reject-unsigned-image.png`: terminal output showing policy-controller rejects an unsigned image with a signature validation error.
+- `09-signed-image-admitted.png`: terminal output showing the deployed rollout uses a signed tag and pods keep running after namespace enforcement.
+- `10-no-secrets-committed.png`: terminal output showing no AWS key, Cosign private key, or secret-looking value appears in tracked files/history.
+
+Commands for the missing screenshots:
+
+```powershell
+kubectl get pods -n cosign-system
+
+.\.tools\cosign.exe verify `
+  --key .\signing\cosign.pub `
+  ghcr.io/trieunguyenphu/w10-api:<SIGNED_TAG>
+
+kubectl create ns sigstore-lab-test --dry-run=client -o yaml | kubectl apply -f -
+kubectl label ns sigstore-lab-test policy.sigstore.dev/include=true --overwrite
+kubectl -n sigstore-lab-test run unsigned-api `
+  --image=ghcr.io/trieunguyenphu/w10-api:0.0.5 `
+  --restart=Never `
+  --dry-run=server -o yaml
+kubectl delete ns sigstore-lab-test --wait=false
+
+kubectl -n demo get rollout api -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl -n demo get pods -l app=api
+
+git grep -n -E "AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|aws_secret_access_key|BEGIN .*PRIVATE KEY" -- .
+if ($LASTEXITCODE -eq 1) { "no secret-looking values in tracked files" }
+git log -p --all | Select-String -Pattern "AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|aws_secret_access_key|BEGIN .*PRIVATE KEY"
+```
+
+Do not capture Cosign private key, `COSIGN_PASSWORD`, AWS access keys, or real production secret values.
