@@ -25,14 +25,14 @@ spec:
         runAsGroup: 10001
       containers:
       - name: api
-        image: ghcr.io/trieunguyenphu/w10-api:0.0.5
+        image: ghcr.io/trieunguyenphu/w10-api:0.0.6
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
           protocol: TCP
         env:
         - name: VERSION
-          value: "v0.0.5"
+          value: "v0.0.6"
         - name: ERROR_RATE
           value: "0"
         volumeMounts:
