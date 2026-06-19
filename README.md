@@ -69,8 +69,8 @@ kubectl -n argocd rollout status deploy/argocd-server
 kubectl -n argocd port-forward svc/argocd-server 8080:443 &
 
 # Get password
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d; echo
+$pwd64 = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pwd64))
 ```
 
 ### STEP PHẢI LÀM ĐỂ APP API CHẠY ĐƯỢC
