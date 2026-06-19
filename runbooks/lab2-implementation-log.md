@@ -90,6 +90,8 @@ Get-Content .\.lab-local\cosign.key -Raw
 Get-Content .\.lab-local\cosign-password.txt -Raw
 ```
 
+When adding `COSIGN_PRIVATE_KEY` in GitHub, paste the entire file exactly as-is, including the `-----BEGIN ENCRYPTED SIGSTORE PRIVATE KEY-----` and `-----END ENCRYPTED SIGSTORE PRIVATE KEY-----` lines. If this secret is missing or pasted as a single broken line, Cosign fails with `reading key: invalid pem block`.
+
 Do not paste either value into Git-tracked files.
 
 ## Recommended order

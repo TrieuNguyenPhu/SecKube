@@ -54,6 +54,24 @@ jobs:
             type=raw,value=${{ steps.semver.outputs.version }}
             type=sha,prefix=v${{ steps.semver.outputs.version }}-
 
+      - name: Validate Cosign secrets
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then
+            echo "::error::Missing GitHub secret COSIGN_PRIVATE_KEY. Set it to the full contents of .lab-local/cosign.key."
+            exit 1
+          fi
+          if [ -z "${COSIGN_PASSWORD:-}" ]; then
+            echo "::error::Missing GitHub secret COSIGN_PASSWORD. Set it to the contents of .lab-local/cosign-password.txt."
+            exit 1
+          fi
+          if ! printf '%s\n' "$COSIGN_PRIVATE_KEY" | grep -Eq '^-----BEGIN .*PRIVATE KEY-----$'; then
+            echo "::error::COSIGN_PRIVATE_KEY is not a PEM private key. Copy the entire cosign.key file, including BEGIN/END lines."
+            exit 1
+          fi
+
       - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
@@ -81,14 +99,16 @@ jobs:
         uses: sigstore/cosign-installer@main
 
       - name: Sign pushed image tags
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
-          printf '%s' "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
+          umask 077
+          trap 'rm -f cosign.key' EXIT
+          printf '%s\n' "$COSIGN_PRIVATE_KEY" > cosign.key
           while IFS= read -r tag; do
             [ -n "$tag" ] && cosign sign --yes --key cosign.key "$tag"
           done <<< "${{ steps.meta.outputs.tags }}"
-          rm -f cosign.key
-        env:
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Update rollout.yaml with new version
         run: |
