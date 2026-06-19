@@ -18,3 +18,12 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+    - RespectIgnoreDifferences=true
+  ignoreDifferences:
+  - group: argoproj.io
+    kind: Application
+    name: gatekeeper
+    namespace: argocd
+    jsonPointers:
+    - /spec/ignoreDifferences
