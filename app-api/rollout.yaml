@@ -69,7 +69,7 @@ spec:
       - name: api
         # Image Flask API từ GitHub Container Registry (GHCR)
         # Image này đã được ký bởi Cosign và quét bởi Trivy trong CI pipeline
-        image: ghcr.io/trieunguyenphu/w10-api:0.0.7
+        image: ghcr.io/trieunguyenphu/w10-api:0.0.6
         # IfNotPresent: Chỉ pull image nếu chưa có trên node
         # Giảm thời gian khởi động và băng thông mạng
         imagePullPolicy: IfNotPresent
@@ -85,7 +85,7 @@ spec:
         # VERSION: Hiển thị phiên bản hiện tại trong response headers/logs
         # Hữu ích để phân biệt traffic canary vs stable khi debug
         - name: VERSION
-          value: "v0.0.7"
+          value: "v0.0.6"
         # ERROR_RATE: Tỷ lệ lỗi giả lập (0 = không lỗi, 0.5 = 50% lỗi)
         # Dùng để demo/test: tăng giá trị này sẽ khiến AnalysisTemplate
         # phát hiện success rate thấp → tự động rollback canary
