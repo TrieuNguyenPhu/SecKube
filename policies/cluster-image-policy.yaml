@@ -1,0 +1,15 @@
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: require-w10-api-signature
+spec:
+  images:
+  - glob: ghcr.io/trieunguyenphu/w10-api**
+  authorities:
+  - key:
+      hashAlgorithm: sha256
+      data: |
+        -----BEGIN PUBLIC KEY-----
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELbFHPEadB1MliIed5KDK1vqwVJSG
+        IQs/ev+ogjfIYMLw4T5XS4ez0LijdZAYyQfDoG44EgqJhd94jhlaSo/2Kg==
+        -----END PUBLIC KEY-----

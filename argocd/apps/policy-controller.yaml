@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: policy-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  project: default
+  ignoreDifferences:
+  - group: admissionregistration.k8s.io
+    kind: MutatingWebhookConfiguration
+    name: policy.sigstore.dev
+    jsonPointers:
+    - /webhooks
+  - group: admissionregistration.k8s.io
+    kind: ValidatingWebhookConfiguration
+    name: policy.sigstore.dev
+    jsonPointers:
+    - /webhooks
+  source:
+    repoURL: https://sigstore.github.io/helm-charts
+    chart: policy-controller
+    targetRevision: 0.10.6
+    helm:
+      values: |
+        webhook:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          webhookTimeoutSeconds:
+            defaulting: 30
+            validating: 30
+        cosign:
+          webhookTimeoutSeconds:
+            mutating: 30
+            validating: 30
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cosign-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

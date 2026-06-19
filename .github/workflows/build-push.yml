@@ -54,13 +54,41 @@ jobs:
             type=raw,value=${{ steps.semver.outputs.version }}
             type=sha,prefix=v${{ steps.semver.outputs.version }}-
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           context: ./src/api
-          push: true
+          load: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push signed-candidate tags
+        run: |
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@main
+
+      - name: Sign pushed image tags
+        run: |
+          printf '%s' "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && cosign sign --yes --key cosign.key "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+          rm -f cosign.key
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Update rollout.yaml with new version
         run: |
